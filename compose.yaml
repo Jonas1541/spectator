@@ -1,0 +1,55 @@
+services:
+  # --- Aplicação (Spring Boot + Vaadin) ---
+  app:
+    build: .
+    image: spectator-app:latest
+    container_name: spectator-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://timescaledb:5432/spectator
+      - SPRING_DATASOURCE_USERNAME=spectator_user
+      - SPRING_DATASOURCE_PASSWORD=spectator_pass
+      - SPRING_PROFILES_ACTIVE=prod
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    # Profile 'app': Este container só sobe se você pedir explicitamente ou rodar com profile
+    profiles:
+      - prod 
+
+  # --- Banco de Dados (TimescaleDB) ---
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: spectator-db
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=spectator
+      - POSTGRES_USER=spectator_user
+      - POSTGRES_PASSWORD=spectator_pass
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spectator_user -d spectator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Interface do Banco (pgAdmin) ---
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: spectator-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@spectator.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - timescaledb
+
+volumes:
+  timescale_data:
