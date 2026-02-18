@@ -36,3 +36,11 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Vaadin
+node_modules/
+src/main/frontend/generated
+.vaadin-node-tasks.lock
+package-lock.json
+webpack.generated.js
+vite.generated.ts

@@ -1,5 +1,39 @@
 spring:
   application:
     name: spectator
+
+  # Configuração do Banco de Dados
+  datasource:
+    # Como o app roda fora do Docker, usamos localhost
+    url: jdbc:postgresql://localhost:5432/spectator
+    username: spectator_user
+    password: spectator_pass
+    driver-class-name: org.postgresql.Driver
+
+  # Configuração do JPA / Hibernate
+  jpa:
+    open-in-view: false # Boa prática de performance
+    show-sql: true
+    hibernate:
+      ddl-auto: validate # Em produção usamos 'validate'. O Flyway que cria as tabelas.
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # Configuração do Flyway (Migrações)
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  # Configuração do DevTools (LiveReload)
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+# Configurações do Vaadin
 vaadin:
-  launch-browser: true
+  launch-browser: false # Para não abrir aba nova toda vez que reiniciar
