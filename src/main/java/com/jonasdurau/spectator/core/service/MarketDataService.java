@@ -68,7 +68,7 @@ public class MarketDataService {
         
         webSocketClient.connect(TARGET_SYMBOL, TIMEFRAME, incomingCandle -> {
             // Este bloco roda toda vez que a Binance manda um tick novo
-            candleRepository.save(incomingCandle);
+            candleRepository.upsert(incomingCandle);
             log.debug("Saved tick for {}: Close Price = {}", incomingCandle.getSymbol(), incomingCandle.getClose());
         });
     }
