@@ -49,17 +49,60 @@ public class MarketDataService {
     }
 
     private void seedHistoricalData() {
-        // Verifica se o banco já tem dados para não baixar os 1000 candles atoa toda vez
         Candle lastCandle = candleRepository.findTopBySymbolOrderByTimeDesc(TARGET_SYMBOL);
         
         if (lastCandle == null) {
-            log.info("Database is empty for {}. Fetching last 1000 candles via REST...", TARGET_SYMBOL);
+            log.info("Database is empty for {}. Fetching initial 1000 candles via REST...", TARGET_SYMBOL);
             List<Candle> history = restClient.fetchHistoricalCandles(TARGET_SYMBOL, TIMEFRAME, 1000);
-            candleRepository.saveAll(history);
+            // Usando nosso upsert otimizado para salvar a carga inicial
+            history.forEach(candleRepository::upsert);
             log.info("Successfully saved {} historical candles to TimescaleDB.", history.size());
         } else {
-            log.info("Database already contains data for {}. Last candle time: {}", TARGET_SYMBOL, lastCandle.getTime());
-            // TODO Futuro: Lógica de preencher apenas o "gap" entre o lastCandle e o momento atual
+            log.info("Database contains data. Last candle time: {}", lastCandle.getTime());
+            fillGap(lastCandle.getTime());
+        }
+    }
+
+    private void fillGap(java.time.Instant lastCandleTime) {
+        log.info("Checking for missing candles since {}...", lastCandleTime);
+        java.time.Instant currentTime = lastCandleTime;
+        java.time.Instant now = java.time.Instant.now();
+        int totalFetched = 0;
+
+        // Loop para paginar gaps que sejam maiores que 1000 candles
+        while (currentTime.isBefore(now)) {
+            List<Candle> batch = restClient.fetchHistoricalCandles(TARGET_SYMBOL, TIMEFRAME, 1000, currentTime);
+
+            if (batch.isEmpty()) {
+                break;
+            }
+
+            // Salva o lote usando o upsert nativo (seguro para overlaps)
+            batch.forEach(candleRepository::upsert);
+            totalFetched += batch.size();
+
+            java.time.Instant lastFetchedTime = batch.get(batch.size() - 1).getTime();
+
+            // Se a API retornou apenas o próprio candle de início (sem velas novas), saímos do loop
+            if (lastFetchedTime.equals(currentTime) && batch.size() == 1) {
+                break;
+            }
+
+            currentTime = lastFetchedTime;
+            
+            // Pausa de 100ms para evitar banimento (Rate Limit) da Binance caso o loop rode muitas vezes
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        // Se totalFetched > 1 é porque baixamos mais coisas além do candle de overlap
+        if (totalFetched > 1) { 
+            log.info("Gap filled. Fetched and synced {} new/updated candles.", totalFetched);
+        } else {
+            log.info("Database is already up to date.");
         }
     }
 

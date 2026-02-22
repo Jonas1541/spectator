@@ -51,6 +51,32 @@ public class BinanceRestClient {
     }
 
     /**
+     * Busca o histórico de candles a partir de uma data específica (Gap Fill).
+     */
+    public List<Candle> fetchHistoricalCandles(String symbol, String interval, int limit, java.time.Instant startTime) {
+        log.info("Fetching gap: {} {} candles for {} starting from {}", limit, interval, symbol, startTime);
+
+        List<List<Object>> response = restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v3/klines")
+                        .queryParam("symbol", symbol)
+                        .queryParam("interval", interval)
+                        .queryParam("limit", limit)
+                        .queryParam("startTime", startTime.toEpochMilli()) // <-- O pulo do gato
+                        .build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+
+        if (response == null || response.isEmpty()) {
+            return List.of();
+        }
+
+        return response.stream()
+                .map(kline -> mapToCandle(symbol, kline))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
      * Converte o array da Binance para a nossa entidade de domínio limpa.
      * Documentação: https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
      */
