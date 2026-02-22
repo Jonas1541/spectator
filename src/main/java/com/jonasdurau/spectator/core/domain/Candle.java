@@ -4,7 +4,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.Objects;
 
 @Entity
@@ -16,7 +16,7 @@ public class Candle {
     private String symbol;
 
     @Id
-    private ZonedDateTime time;
+    private Instant time;
 
     private double open;
     private double high;
@@ -27,7 +27,7 @@ public class Candle {
     public Candle() {
     }
 
-    public Candle(String symbol, ZonedDateTime time, double open, double high, double low, double close, double volume) {
+    public Candle(String symbol, Instant time, double open, double high, double low, double close, double volume) {
         this.symbol = symbol;
         this.time = time;
         this.open = open;
@@ -41,7 +41,7 @@ public class Candle {
         return symbol;
     }
 
-    public ZonedDateTime getTime() {
+    public Instant getTime() {
         return time;
     }
 
@@ -69,7 +69,7 @@ public class Candle {
         this.symbol = symbol;
     }
 
-    public void setTime(ZonedDateTime time) {
+    public void setTime(Instant time) {
         this.time = time;
     }
 

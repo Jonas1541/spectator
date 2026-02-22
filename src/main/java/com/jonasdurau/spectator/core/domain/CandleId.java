@@ -1,17 +1,17 @@
 package com.jonasdurau.spectator.core.domain;
 
 import java.io.Serializable;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.Objects;
 
 public class CandleId implements Serializable {
     private String symbol;
-    private ZonedDateTime time;
+    private Instant time;
 
     public CandleId() {
     }
 
-    public CandleId(String symbol, ZonedDateTime time) {
+    public CandleId(String symbol, Instant time) {
         this.symbol = symbol;
         this.time = time;
     }
@@ -24,11 +24,11 @@ public class CandleId implements Serializable {
         this.symbol = symbol;
     }
 
-    public ZonedDateTime getTime() {
+    public Instant getTime() {
         return time;
     }
 
-    public void setTime(ZonedDateTime time) {
+    public void setTime(Instant time) {
         this.time = time;
     }
 

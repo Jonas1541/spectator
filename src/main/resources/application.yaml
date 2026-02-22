@@ -2,6 +2,10 @@ spring:
   application:
     name: spectator
 
+  threads:
+    virtual:
+      enabled: true
+
   # Configuração do Banco de Dados
   datasource:
     # Como o app roda fora do Docker, usamos localhost

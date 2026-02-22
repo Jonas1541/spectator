@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Repository
@@ -22,7 +22,7 @@ public interface CandleRepository extends JpaRepository<Candle, CandleId> {
     /**
      * Busca um range específico (para Backtesting ou gráficos históricos).
      */
-    List<Candle> findBySymbolAndTimeBetweenOrderByTimeAsc(String symbol, ZonedDateTime start, ZonedDateTime end);
+    List<Candle> findBySymbolAndTimeBetweenOrderByTimeAsc(String symbol, Instant start, Instant end);
 
     /**
      * Verifica qual foi o último candle gravado no banco para saber de onde retomar a sincronização.
