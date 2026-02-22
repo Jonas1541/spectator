@@ -1,7 +1,9 @@
 package com.jonasdurau.spectator.core.service;
 
 import com.jonasdurau.spectator.core.domain.Candle;
+import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.repository.CandleRepository;
+import com.jonasdurau.spectator.core.strategy.RegimeAnalyzerService;
 import com.jonasdurau.spectator.integration.binance.BinanceRestClient;
 import com.jonasdurau.spectator.integration.binance.BinanceWebSocketClient;
 import org.slf4j.Logger;
@@ -10,6 +12,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -24,13 +27,16 @@ public class MarketDataService {
     private final CandleRepository candleRepository;
     private final BinanceRestClient restClient;
     private final BinanceWebSocketClient webSocketClient;
+    private final RegimeAnalyzerService regimeAnalyzerService;
 
     public MarketDataService(CandleRepository candleRepository, 
                                   BinanceRestClient restClient, 
-                                  BinanceWebSocketClient webSocketClient) {
+                                  BinanceWebSocketClient webSocketClient,
+                                  RegimeAnalyzerService regimeAnalyzerService) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
         this.webSocketClient = webSocketClient;
+        this.regimeAnalyzerService = regimeAnalyzerService;
     }
 
     /**
@@ -110,9 +116,20 @@ public class MarketDataService {
         log.info("Opening WebSocket stream for {} timeframe...", TIMEFRAME);
         
         webSocketClient.connect(TARGET_SYMBOL, TIMEFRAME, incomingCandle -> {
-            // Este bloco roda toda vez que a Binance manda um tick novo
+            // 1. Salva o tick atual no banco
             candleRepository.upsert(incomingCandle);
-            log.debug("Saved tick for {}: Close Price = {}", incomingCandle.getSymbol(), incomingCandle.getClose());
+            
+            // 2. Busca os últimos 250 candles para cálculo (traz os mais recentes primeiro)
+            List<Candle> recentCandles = candleRepository.findLastCandles(TARGET_SYMBOL, 250);
+            
+            // 3. Inverte a lista para ordem cronológica ascendente (o ta4j exige o mais antigo primeiro)
+            Collections.reverse(recentCandles);
+            
+            // 4. Analisa o regime de mercado atual
+            MarketRegime currentRegime = regimeAnalyzerService.analyze(recentCandles);
+            
+            // Trocamos o log.debug por log.info temporariamente para você ver a mágica acontecer
+            log.info("Tick: {} | Price: {} | Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(), currentRegime);
         });
     }
 }
