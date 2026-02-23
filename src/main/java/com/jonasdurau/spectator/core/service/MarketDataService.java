@@ -6,6 +6,9 @@ import com.jonasdurau.spectator.core.repository.CandleRepository;
 import com.jonasdurau.spectator.core.strategy.RegimeAnalyzerService;
 import com.jonasdurau.spectator.integration.binance.BinanceRestClient;
 import com.jonasdurau.spectator.integration.binance.BinanceWebSocketClient;
+import com.jonasdurau.spectator.ui.broadcaster.MarketDataBroadcaster;
+import com.jonasdurau.spectator.ui.broadcaster.MarketTick;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -28,15 +31,18 @@ public class MarketDataService {
     private final BinanceRestClient restClient;
     private final BinanceWebSocketClient webSocketClient;
     private final RegimeAnalyzerService regimeAnalyzerService;
+    private final MarketDataBroadcaster broadcaster;
 
     public MarketDataService(CandleRepository candleRepository, 
                                   BinanceRestClient restClient, 
                                   BinanceWebSocketClient webSocketClient,
-                                  RegimeAnalyzerService regimeAnalyzerService) {
+                                  RegimeAnalyzerService regimeAnalyzerService,
+                                  MarketDataBroadcaster broadcaster) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
         this.webSocketClient = webSocketClient;
         this.regimeAnalyzerService = regimeAnalyzerService;
+        this.broadcaster = broadcaster;
     }
 
     /**
@@ -130,6 +136,9 @@ public class MarketDataService {
             
             // Trocamos o log.debug por log.info temporariamente para você ver a mágica acontecer
             log.info("Tick: {} | Price: {} | Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(), currentRegime);
+
+            // Dispara a atualização para qualquer tela do Vaadin que estiver aberta
+            broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime));
         });
     }
 }

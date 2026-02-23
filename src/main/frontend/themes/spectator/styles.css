@@ -1,0 +1,6 @@
+vaadin-grid::part(bullish) {
+    color: var(--lumo-success-text-color);
+}
+vaadin-grid::part(bearish) {
+    color: var(--lumo-error-text-color);
+}
