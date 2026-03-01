@@ -5,10 +5,10 @@ import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.repository.CandleRepository;
 import com.jonasdurau.spectator.ui.broadcaster.MarketDataBroadcaster;
 import com.jonasdurau.spectator.ui.broadcaster.MarketTick;
+import com.jonasdurau.spectator.ui.components.TradingViewChart;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.DetachEvent;
 import com.vaadin.flow.component.UI;
-import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
@@ -19,8 +19,7 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 
 import java.text.NumberFormat;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
@@ -36,11 +35,9 @@ public class DashboardView extends VerticalLayout {
     // Componentes Visuais
     private final H2 priceLabel = new H2("Loading...");
     private final Span regimeBadge = new Span("ANALYZING");
-    private final Grid<Candle> candleGrid = new Grid<>(Candle.class, false);
+    private final TradingViewChart chart = new TradingViewChart();
 
-    // Formatadores
     private final NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.US);
-    private final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss").withZone(ZoneId.systemDefault());
 
     public DashboardView(MarketDataBroadcaster broadcaster, CandleRepository candleRepository) {
         this.broadcaster = broadcaster;
@@ -52,9 +49,10 @@ public class DashboardView extends VerticalLayout {
 
         createHeader();
         createMetricsBoard();
-        createLiveGrid();
-        
-        // Carrega os dados iniciais do banco antes do primeiro tick chegar
+
+        // Adicionamos o gráfico no lugar do grid
+        add(chart);
+
         loadInitialData();
     }
 
@@ -69,7 +67,8 @@ public class DashboardView extends VerticalLayout {
         board.setWidthFull();
         board.setAlignItems(Alignment.CENTER);
         board.setJustifyContentMode(JustifyContentMode.BETWEEN);
-        board.addClassNames(LumoUtility.Background.CONTRAST_5, LumoUtility.Padding.LARGE, LumoUtility.BorderRadius.LARGE);
+        // Cores ajustadas para combinar com o fundo escuro
+        board.addClassNames(LumoUtility.Background.BASE, LumoUtility.Padding.LARGE, LumoUtility.BorderRadius.LARGE);
 
         VerticalLayout priceLayout = new VerticalLayout(new Span("BTC/USDT Live Price"), priceLabel);
         priceLayout.setSpacing(false);
@@ -80,45 +79,42 @@ public class DashboardView extends VerticalLayout {
         regimeLayout.setSpacing(false);
         regimeLayout.setPadding(false);
         regimeLayout.setAlignItems(Alignment.END);
-        regimeBadge.addClassNames(LumoUtility.Padding.Horizontal.MEDIUM, LumoUtility.Padding.Vertical.SMALL, LumoUtility.BorderRadius.LARGE, LumoUtility.FontWeight.BOLD);
+        regimeBadge.addClassNames(LumoUtility.Padding.Horizontal.MEDIUM, LumoUtility.Padding.Vertical.SMALL,
+                LumoUtility.BorderRadius.LARGE, LumoUtility.FontWeight.BOLD);
 
         board.add(priceLayout, regimeLayout);
         add(board);
     }
 
-    private void createLiveGrid() {
-        candleGrid.addColumn(c -> timeFormatter.format(c.getTime())).setHeader("Time").setAutoWidth(true);
-        candleGrid.addColumn(c -> currencyFormatter.format(c.getOpen())).setHeader("Open").setAutoWidth(true);
-        candleGrid.addColumn(c -> currencyFormatter.format(c.getHigh())).setHeader("High").setAutoWidth(true);
-        candleGrid.addColumn(c -> currencyFormatter.format(c.getLow())).setHeader("Low").setAutoWidth(true);
-        candleGrid.addColumn(c -> currencyFormatter.format(c.getClose())).setHeader("Close").setAutoWidth(true);
-        candleGrid.addColumn(Candle::getVolume).setHeader("Volume").setAutoWidth(true);
-
-        // Estiliza linhas baseadas em alta/baixa
-        candleGrid.setPartNameGenerator(candle -> candle.getClose() >= candle.getOpen() ? "bullish" : "bearish");
-        
-        candleGrid.setSizeFull();
-        add(candleGrid);
-    }
-
     private void loadInitialData() {
-        List<Candle> initialCandles = candleRepository.findLastCandles("BTCUSDT", 50);
-        candleGrid.setItems(initialCandles);
+        // Puxa os últimos 500 candles para o gráfico ficar bonito
+        List<Candle> initialCandles = candleRepository.findLastCandles("BTCUSDT", 500);
+
         if (!initialCandles.isEmpty()) {
-            updateMetrics(initialCandles.get(0), MarketRegime.SIDEWAYS); // O Regime real virá no próximo tick
+            // Reverte a ordem porque o TradingView exige do mais velho para o mais novo
+            Collections.reverse(initialCandles);
+
+            chart.setHistoricalData(initialCandles);
+
+            // Pega o candle mais recente para o painel superior
+            Candle last = initialCandles.get(initialCandles.size() - 1);
+            updateMetrics(last, MarketRegime.SIDEWAYS);
         }
     }
-
-    // --- Lógica de Push e Concorrência ---
 
     @Override
     protected void onAttach(AttachEvent attachEvent) {
         UI ui = attachEvent.getUI();
+
+        // A forma oficial no Vaadin 25 de forçar o Lumo Dark globalmente na tag <html>
+        ui.getPage().executeJs("document.documentElement.setAttribute('theme', 'dark');");
+
         broadcasterListener = tick -> ui.access(() -> {
             updateMetrics(tick.candle(), tick.regime());
-            // Atualiza o grid puxando os 50 mais recentes do banco para garantir consistência
-            candleGrid.setItems(candleRepository.findLastCandles("BTCUSDT", 50));
+            // Atualiza o gráfico de forma segura e não bloqueante
+            chart.updateLiveTick(tick.candle());
         });
+
         broadcaster.register(broadcasterListener);
     }
 
@@ -131,17 +127,19 @@ public class DashboardView extends VerticalLayout {
         priceLabel.setText(currencyFormatter.format(candle.getClose()));
         regimeBadge.setText(regime.name().replace("_", " "));
 
-        // Limpa classes antigas e aplica as novas cores de acordo com o regime
         regimeBadge.removeClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS,
-                                     LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR,
-                                     LumoUtility.Background.WARNING_10, LumoUtility.TextColor.WARNING,
-                                     LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.SECONDARY);
+                LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR,
+                LumoUtility.Background.WARNING_10, LumoUtility.TextColor.WARNING,
+                LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.BODY);
 
         switch (regime) {
-            case TRENDING_UP -> regimeBadge.addClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS);
-            case TRENDING_DOWN -> regimeBadge.addClassNames(LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR);
-            case VOLATILE -> regimeBadge.addClassNames(LumoUtility.Background.WARNING_10, LumoUtility.TextColor.WARNING);
-            default -> regimeBadge.addClassNames(LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.TERTIARY);
+            case TRENDING_UP ->
+                regimeBadge.addClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS);
+            case TRENDING_DOWN ->
+                regimeBadge.addClassNames(LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR);
+            case VOLATILE ->
+                regimeBadge.addClassNames(LumoUtility.Background.WARNING_10, LumoUtility.TextColor.WARNING);
+            default -> regimeBadge.addClassNames(LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.BODY);
         }
     }
 }
