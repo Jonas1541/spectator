@@ -44,7 +44,8 @@ public class TradingViewChart extends Div {
                                         timeScale: { timeVisible: true, secondsVisible: false }
                                     });
 
-                                    const series = chart.addCandlestickSeries({
+                                    // NEW v5 Unified Series API
+                                    const series = chart.addSeries(window.LightweightCharts.CandlestickSeries, {
                                         upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
                                         wickUpColor: '#26a69a', wickDownColor: '#ef5350'
                                     });
@@ -86,7 +87,8 @@ public class TradingViewChart extends Div {
 
                                 window._lightweightChartsLoading = true;
                                 const script = document.createElement('script');
-                                script.src = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
+                                // Upgrade to v5
+                                script.src = 'https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js';
                                 script.onload = renderChart;
                                 script.onerror = (err) => console.error("Error loading LightweightCharts script", err);
                                 document.head.appendChild(script);
