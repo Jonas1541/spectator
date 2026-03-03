@@ -22,31 +22,37 @@ import java.util.List;
 public class MarketDataService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
-    
+
     // Como o Spectator é focado em Bitcoin, vamos deixar isso fixo por enquanto.
     private static final String TARGET_SYMBOL = "BTCUSDT";
-    private static final String TIMEFRAME = "1h"; 
+    private static final String TIMEFRAME = "1h";
 
     private final CandleRepository candleRepository;
     private final BinanceRestClient restClient;
     private final BinanceWebSocketClient webSocketClient;
     private final RegimeAnalyzerService regimeAnalyzerService;
     private final MarketDataBroadcaster broadcaster;
+    private final PositionManagerService positionManagerService;
+    private final StrategyEngineService strategyEngineService;
 
-    public MarketDataService(CandleRepository candleRepository, 
-                                  BinanceRestClient restClient, 
-                                  BinanceWebSocketClient webSocketClient,
-                                  RegimeAnalyzerService regimeAnalyzerService,
-                                  MarketDataBroadcaster broadcaster) {
+    public MarketDataService(CandleRepository candleRepository,
+            BinanceRestClient restClient,
+            BinanceWebSocketClient webSocketClient,
+            RegimeAnalyzerService regimeAnalyzerService,
+            MarketDataBroadcaster broadcaster,
+            PositionManagerService positionManagerService,
+            StrategyEngineService strategyEngineService) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
         this.webSocketClient = webSocketClient;
         this.regimeAnalyzerService = regimeAnalyzerService;
         this.broadcaster = broadcaster;
+        this.positionManagerService = positionManagerService;
+        this.strategyEngineService = strategyEngineService;
     }
 
     /**
-     * Este método é acionado automaticamente pelo Spring assim que a 
+     * Este método é acionado automaticamente pelo Spring assim que a
      * aplicação termina de subir e a porta 8080 está pronta.
      */
     @EventListener(ApplicationReadyEvent.class)
@@ -62,7 +68,7 @@ public class MarketDataService {
 
     private void seedHistoricalData() {
         Candle lastCandle = candleRepository.findTopBySymbolOrderByTimeDesc(TARGET_SYMBOL);
-        
+
         if (lastCandle == null) {
             log.info("Database is empty for {}. Fetching initial 1000 candles via REST...", TARGET_SYMBOL);
             List<Candle> history = restClient.fetchHistoricalCandles(TARGET_SYMBOL, TIMEFRAME, 1000);
@@ -95,14 +101,16 @@ public class MarketDataService {
 
             java.time.Instant lastFetchedTime = batch.get(batch.size() - 1).getTime();
 
-            // Se a API retornou apenas o próprio candle de início (sem velas novas), saímos do loop
+            // Se a API retornou apenas o próprio candle de início (sem velas novas), saímos
+            // do loop
             if (lastFetchedTime.equals(currentTime) && batch.size() == 1) {
                 break;
             }
 
             currentTime = lastFetchedTime;
-            
-            // Pausa de 100ms para evitar banimento (Rate Limit) da Binance caso o loop rode muitas vezes
+
+            // Pausa de 100ms para evitar banimento (Rate Limit) da Binance caso o loop rode
+            // muitas vezes
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
@@ -111,7 +119,7 @@ public class MarketDataService {
         }
 
         // Se totalFetched > 1 é porque baixamos mais coisas além do candle de overlap
-        if (totalFetched > 1) { 
+        if (totalFetched > 1) {
             log.info("Gap filled. Fetched and synced {} new/updated candles.", totalFetched);
         } else {
             log.info("Database is already up to date.");
@@ -120,25 +128,38 @@ public class MarketDataService {
 
     private void startRealtimeStream() {
         log.info("Opening WebSocket stream for {} timeframe...", TIMEFRAME);
-        
+
         webSocketClient.connect(TARGET_SYMBOL, TIMEFRAME, incomingCandle -> {
             // 1. Salva o tick atual no banco
             candleRepository.upsert(incomingCandle);
-            
+
             // 2. Busca os últimos 250 candles para cálculo (traz os mais recentes primeiro)
             List<Candle> recentCandles = candleRepository.findLastCandles(TARGET_SYMBOL, 250);
-            
-            // 3. Inverte a lista para ordem cronológica ascendente (o ta4j exige o mais antigo primeiro)
+
+            // 3. Inverte a lista para ordem cronológica ascendente (o ta4j exige o mais
+            // antigo primeiro)
             Collections.reverse(recentCandles);
-            
+
             // 4. Analisa o regime de mercado atual
             MarketRegime currentRegime = regimeAnalyzerService.analyze(recentCandles);
-            
-            // Trocamos o log.debug por log.info temporariamente para você ver a mágica acontecer
-            log.info("Tick: {} | Price: {} | Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(), currentRegime);
+
+            // Trocamos o log.debug por log.info temporariamente para você ver a mágica
+            // acontecer
+            log.info("Tick: {} | Price: {} | Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
+                    currentRegime);
+
+            // 5. Avalia posições ativas para SL/TP
+            positionManagerService.evaluateLiveTick(TARGET_SYMBOL, incomingCandle.getClose());
+
+            // 6. Strategy processing
+            strategyEngineService.processTick(TARGET_SYMBOL, incomingCandle.getClose(), currentRegime);
+
+            // 7. Get open positions to stream to the UI
+            List<com.jonasdurau.spectator.core.domain.Position> openPositions = positionManagerService
+                    .getOpenPositions(TARGET_SYMBOL);
 
             // Dispara a atualização para qualquer tela do Vaadin que estiver aberta
-            broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime));
+            broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime, openPositions));
         });
     }
 }

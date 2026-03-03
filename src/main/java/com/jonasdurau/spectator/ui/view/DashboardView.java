@@ -12,6 +12,7 @@ import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
+import com.jonasdurau.spectator.core.domain.Position;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.router.PageTitle;
@@ -35,6 +36,8 @@ public class DashboardView extends VerticalLayout {
     // Componentes Visuais
     private final H2 priceLabel = new H2("Loading...");
     private final Span regimeBadge = new Span("ANALYZING");
+    private final Span positionBadge = new Span("NO ACTIVE TRADES");
+    private final Span pnlLabel = new Span("$0.00");
     private final TradingViewChart chart = new TradingViewChart();
 
     private final NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.US);
@@ -82,7 +85,20 @@ public class DashboardView extends VerticalLayout {
         regimeBadge.addClassNames(LumoUtility.Padding.Horizontal.MEDIUM, LumoUtility.Padding.Vertical.SMALL,
                 LumoUtility.BorderRadius.LARGE, LumoUtility.FontWeight.BOLD);
 
-        board.add(priceLayout, regimeLayout);
+        VerticalLayout positionLayout = new VerticalLayout(new Span("Position"), positionBadge);
+        positionLayout.setSpacing(false);
+        positionLayout.setPadding(false);
+        positionLayout.setAlignItems(Alignment.END);
+        positionBadge.addClassNames(LumoUtility.Padding.Horizontal.MEDIUM, LumoUtility.Padding.Vertical.SMALL,
+                LumoUtility.BorderRadius.LARGE, LumoUtility.FontWeight.BOLD, LumoUtility.Background.CONTRAST_10);
+
+        VerticalLayout pnlLayout = new VerticalLayout(new Span("Floating PnL"), pnlLabel);
+        pnlLayout.setSpacing(false);
+        pnlLayout.setPadding(false);
+        pnlLayout.setAlignItems(Alignment.END);
+        pnlLabel.addClassNames(LumoUtility.FontSize.XLARGE, LumoUtility.FontWeight.BOLD);
+
+        board.add(priceLayout, regimeLayout, positionLayout, pnlLayout);
         add(board);
     }
 
@@ -98,7 +114,7 @@ public class DashboardView extends VerticalLayout {
 
             // Pega o candle mais recente para o painel superior
             Candle last = initialCandles.get(initialCandles.size() - 1);
-            updateMetrics(last, MarketRegime.SIDEWAYS);
+            updateMetrics(last, MarketRegime.SIDEWAYS, Collections.emptyList());
         }
     }
 
@@ -110,7 +126,7 @@ public class DashboardView extends VerticalLayout {
         ui.getPage().executeJs("document.documentElement.setAttribute('theme', 'dark');");
 
         broadcasterListener = tick -> ui.access(() -> {
-            updateMetrics(tick.candle(), tick.regime());
+            updateMetrics(tick.candle(), tick.regime(), tick.openPositions());
             // Atualiza o gráfico de forma segura e não bloqueante
             chart.updateLiveTick(tick.candle());
         });
@@ -123,7 +139,7 @@ public class DashboardView extends VerticalLayout {
         broadcaster.unregister(broadcasterListener);
     }
 
-    private void updateMetrics(Candle candle, MarketRegime regime) {
+    private void updateMetrics(Candle candle, MarketRegime regime, List<Position> positions) {
         priceLabel.setText(currencyFormatter.format(candle.getClose()));
         regimeBadge.setText(regime.name().replace("_", " "));
 
@@ -140,6 +156,36 @@ public class DashboardView extends VerticalLayout {
             case VOLATILE ->
                 regimeBadge.addClassNames(LumoUtility.Background.WARNING_10, LumoUtility.TextColor.WARNING);
             default -> regimeBadge.addClassNames(LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.BODY);
+        }
+
+        // Setup Floating PnL & Position states
+        if (positions != null && !positions.isEmpty()) {
+            Position active = positions.get(0); // Assuming one anti-martingale trade active at a time
+            positionBadge.setText(active.getSide() + " x" + active.getQuantity());
+
+            if (active.getSide() == com.jonasdurau.spectator.core.domain.TradeSide.LONG) {
+                positionBadge.addClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS);
+            } else {
+                positionBadge.addClassNames(LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR);
+            }
+
+            double pnl = active.calculateFloatingPnl(candle.getClose());
+            pnlLabel.setText((pnl >= 0 ? "+" : "") + currencyFormatter.format(pnl));
+
+            pnlLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
+            if (pnl > 0)
+                pnlLabel.addClassName(LumoUtility.TextColor.SUCCESS);
+            else if (pnl < 0)
+                pnlLabel.addClassName(LumoUtility.TextColor.ERROR);
+
+        } else {
+            positionBadge.setText("NO ACTIVE TRADES");
+            positionBadge.removeClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS,
+                    LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR);
+            positionBadge.addClassNames(LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.BODY);
+
+            pnlLabel.setText("$0.00");
+            pnlLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
         }
     }
 }
