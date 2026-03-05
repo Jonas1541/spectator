@@ -16,6 +16,9 @@ public class Candle {
     private String symbol;
 
     @Id
+    private String timeframe;
+
+    @Id
     private Instant time;
 
     private double open;
@@ -27,8 +30,9 @@ public class Candle {
     public Candle() {
     }
 
-    public Candle(String symbol, Instant time, double open, double high, double low, double close, double volume) {
+    public Candle(String symbol, String timeframe, Instant time, double open, double high, double low, double close, double volume) {
         this.symbol = symbol;
+        this.timeframe = timeframe;
         this.time = time;
         this.open = open;
         this.high = high;
@@ -39,6 +43,10 @@ public class Candle {
 
     public String getSymbol() {
         return symbol;
+    }
+
+    public String getTimeframe() {
+        return timeframe;
     }
 
     public Instant getTime() {
@@ -67,6 +75,10 @@ public class Candle {
 
     public void setSymbol(String symbol) {
         this.symbol = symbol;
+    }
+
+    public void setTimeframe(String timeframe) {
+        this.timeframe = timeframe;
     }
 
     public void setTime(Instant time) {
@@ -112,18 +124,19 @@ public class Candle {
         if (o == null || getClass() != o.getClass())
             return false;
         Candle candle = (Candle) o;
-        return Objects.equals(symbol, candle.symbol) && Objects.equals(time, candle.time);
+        return Objects.equals(symbol, candle.symbol) && Objects.equals(timeframe, candle.timeframe) && Objects.equals(time, candle.time);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(symbol, time);
+        return Objects.hash(symbol, timeframe, time);
     }
 
     @Override
     public String toString() {
         return "Candle{" +
                 "symbol='" + symbol + '\'' +
+                ", timeframe='" + timeframe + '\'' +
                 ", time=" + time +
                 ", o=" + open +
                 ", h=" + high +

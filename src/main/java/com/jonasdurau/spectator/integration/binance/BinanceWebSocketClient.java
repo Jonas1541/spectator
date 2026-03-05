@@ -5,7 +5,6 @@ import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceKlineEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -15,18 +14,18 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.time.Instant;
 import java.util.function.Consumer;
 
-@Component
 public class BinanceWebSocketClient extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceWebSocketClient.class);
     private static final String BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/";
 
     private final ObjectMapper objectMapper;
-    private Consumer<Candle> candleUpdateListener;
+    private final Consumer<Candle> candleUpdateListener;
     private WebSocketSession currentSession;
 
-    public BinanceWebSocketClient(ObjectMapper objectMapper) {
+    public BinanceWebSocketClient(ObjectMapper objectMapper, Consumer<Candle> listener) {
         this.objectMapper = objectMapper;
+        this.candleUpdateListener = listener;
     }
 
     /**
@@ -35,8 +34,7 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
      * @param interval Ex: "1h", "4h"
      * @param listener Uma função que será chamada toda vez que um tick chegar
      */
-    public void connect(String symbol, String interval, Consumer<Candle> listener) {
-        this.candleUpdateListener = listener;
+    public void connect(String symbol, String interval) {
         String streamUrl = BINANCE_WS_URL + symbol.toLowerCase() + "@kline_" + interval;
 
         StandardWebSocketClient client = new StandardWebSocketClient();
@@ -68,6 +66,7 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
         
         Candle candle = new Candle(
                 event.symbol(),
+                data.interval(),
                 time,
                 Double.parseDouble(data.open()),
                 Double.parseDouble(data.high()),

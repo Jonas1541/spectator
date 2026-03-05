@@ -46,7 +46,7 @@ public class BinanceRestClient {
         }
 
         return response.stream()
-                .map(kline -> mapToCandle(symbol, kline))
+                .map(kline -> mapToCandle(symbol, interval, kline))
                 .collect(Collectors.toList());
     }
 
@@ -72,7 +72,7 @@ public class BinanceRestClient {
         }
 
         return response.stream()
-                .map(kline -> mapToCandle(symbol, kline))
+                .map(kline -> mapToCandle(symbol, interval, kline))
                 .collect(java.util.stream.Collectors.toList());
     }
 
@@ -80,7 +80,7 @@ public class BinanceRestClient {
      * Converte o array da Binance para a nossa entidade de domínio limpa.
      * Documentação: https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
      */
-    private Candle mapToCandle(String symbol, List<Object> kline) {
+    private Candle mapToCandle(String symbol, String interval, List<Object> kline) {
         // kline.get(0) = Open time (Long)
         long openTimeMs = ((Number) kline.get(0)).longValue();
         
@@ -94,6 +94,6 @@ public class BinanceRestClient {
         double close = Double.parseDouble(kline.get(4).toString());
         double volume = Double.parseDouble(kline.get(5).toString());
 
-        return new Candle(symbol, time, open, high, low, close, volume);
+        return new Candle(symbol, interval, time, open, high, low, close, volume);
     }
 }

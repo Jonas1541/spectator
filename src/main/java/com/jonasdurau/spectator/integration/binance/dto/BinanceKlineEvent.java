@@ -15,6 +15,7 @@ public record BinanceKlineEvent(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record KlineData(
             @JsonProperty("t") long startTime,
+            @JsonProperty("i") String interval,
             @JsonProperty("o") String open,
             @JsonProperty("h") String high,
             @JsonProperty("l") String low,

@@ -104,7 +104,7 @@ public class DashboardView extends VerticalLayout {
 
     private void loadInitialData() {
         // Puxa os últimos 500 candles para o gráfico ficar bonito
-        List<Candle> initialCandles = candleRepository.findLastCandles("BTCUSDT", 500);
+        List<Candle> initialCandles = candleRepository.findLastCandles("BTCUSDT", "1h", 500);
 
         if (!initialCandles.isEmpty()) {
             // Reverte a ordem porque o TradingView exige do mais velho para o mais novo

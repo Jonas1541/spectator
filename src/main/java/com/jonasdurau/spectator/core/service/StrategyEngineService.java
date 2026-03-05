@@ -1,10 +1,12 @@
 package com.jonasdurau.spectator.core.service;
 
+import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.domain.Position;
 import com.jonasdurau.spectator.core.domain.PositionStatus;
-import com.jonasdurau.spectator.core.domain.TradeSide;
 import com.jonasdurau.spectator.core.repository.PositionRepository;
+import com.jonasdurau.spectator.core.strategy.TradeSignal;
+import com.jonasdurau.spectator.core.strategy.TradingStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,34 +20,40 @@ public class StrategyEngineService {
 
     private final OrderExecutionService orderExecutionService;
     private final PositionRepository positionRepository;
+    private final List<TradingStrategy> strategies;
 
-    private static final double STANDARD_QTY = 0.1;
-    private static final double STOP_LOSS_PCT = 0.05; // 5%
-    private static final double TAKE_PROFIT_PCT = 0.10; // 10%
-
-    public StrategyEngineService(OrderExecutionService orderExecutionService, PositionRepository positionRepository) {
+    public StrategyEngineService(OrderExecutionService orderExecutionService, 
+                                 PositionRepository positionRepository,
+                                 List<TradingStrategy> strategies) {
         this.orderExecutionService = orderExecutionService;
         this.positionRepository = positionRepository;
+        this.strategies = strategies;
     }
 
-    public void processTick(String symbol, double currentPrice, MarketRegime regime) {
+    public void processTick(String symbol, double currentPrice, MarketRegime regime, List<Candle> recent1hCandles) {
         List<Position> openPositions = positionRepository.findBySymbolAndStatus(symbol, PositionStatus.OPEN);
 
-        // Simples anti-martingale: 1 posição por vez
+        // Simples anti-martingale: 1 posição por vez no painel global
         if (!openPositions.isEmpty()) {
             return;
         }
 
-        if (regime == MarketRegime.TRENDING_UP) {
-            log.info("Strategy hit: TRENDING_UP -> Processing LONG signal");
-            double sl = currentPrice * (1 - STOP_LOSS_PCT);
-            double tp = currentPrice * (1 + TAKE_PROFIT_PCT);
-            orderExecutionService.executeMarketOrder(symbol, TradeSide.LONG, STANDARD_QTY, currentPrice, sl, tp);
-        } else if (regime == MarketRegime.TRENDING_DOWN) {
-            log.info("Strategy hit: TRENDING_DOWN -> Processing SHORT signal");
-            double sl = currentPrice * (1 + STOP_LOSS_PCT);
-            double tp = currentPrice * (1 - TAKE_PROFIT_PCT);
-            orderExecutionService.executeMarketOrder(symbol, TradeSide.SHORT, STANDARD_QTY, currentPrice, sl, tp);
+        for (TradingStrategy strategy : strategies) {
+            TradeSignal signal = strategy.evaluate(recent1hCandles, regime, currentPrice);
+            
+            if (signal.fire()) {
+                log.info("Strategy [{}] fired {} signal! Executing...", strategy.getName(), signal.side());
+                orderExecutionService.executeMarketOrder(
+                        symbol, 
+                        signal.side(), 
+                        signal.quantity(), 
+                        currentPrice, 
+                        signal.stopLoss(), 
+                        signal.takeProfit()
+                );
+                // Return immediately so we don't open overlapping trades inside the same iteration
+                return;
+            }
         }
     }
 }

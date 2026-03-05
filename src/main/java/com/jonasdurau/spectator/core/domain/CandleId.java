@@ -6,13 +6,15 @@ import java.util.Objects;
 
 public class CandleId implements Serializable {
     private String symbol;
+    private String timeframe;
     private Instant time;
 
     public CandleId() {
     }
 
-    public CandleId(String symbol, Instant time) {
+    public CandleId(String symbol, String timeframe, Instant time) {
         this.symbol = symbol;
+        this.timeframe = timeframe;
         this.time = time;
     }
 
@@ -22,6 +24,14 @@ public class CandleId implements Serializable {
 
     public void setSymbol(String symbol) {
         this.symbol = symbol;
+    }
+
+    public String getTimeframe() {
+        return timeframe;
+    }
+
+    public void setTimeframe(String timeframe) {
+        this.timeframe = timeframe;
     }
 
     public Instant getTime() {
@@ -39,11 +49,11 @@ public class CandleId implements Serializable {
         if (o == null || getClass() != o.getClass())
             return false;
         CandleId candleId = (CandleId) o;
-        return Objects.equals(symbol, candleId.symbol) && Objects.equals(time, candleId.time);
+        return Objects.equals(symbol, candleId.symbol) && Objects.equals(timeframe, candleId.timeframe) && Objects.equals(time, candleId.time);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(symbol, time);
+        return Objects.hash(symbol, timeframe, time);
     }
 }

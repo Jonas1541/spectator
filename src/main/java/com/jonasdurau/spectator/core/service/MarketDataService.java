@@ -6,6 +6,7 @@ import com.jonasdurau.spectator.core.repository.CandleRepository;
 import com.jonasdurau.spectator.core.strategy.RegimeAnalyzerService;
 import com.jonasdurau.spectator.integration.binance.BinanceRestClient;
 import com.jonasdurau.spectator.integration.binance.BinanceWebSocketClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jonasdurau.spectator.ui.broadcaster.MarketDataBroadcaster;
 import com.jonasdurau.spectator.ui.broadcaster.MarketTick;
 
@@ -25,11 +26,9 @@ public class MarketDataService {
 
     // Como o Spectator é focado em Bitcoin, vamos deixar isso fixo por enquanto.
     private static final String TARGET_SYMBOL = "BTCUSDT";
-    private static final String TIMEFRAME = "1h";
-
     private final CandleRepository candleRepository;
     private final BinanceRestClient restClient;
-    private final BinanceWebSocketClient webSocketClient;
+    private final ObjectMapper objectMapper;
     private final RegimeAnalyzerService regimeAnalyzerService;
     private final MarketDataBroadcaster broadcaster;
     private final PositionManagerService positionManagerService;
@@ -37,14 +36,14 @@ public class MarketDataService {
 
     public MarketDataService(CandleRepository candleRepository,
             BinanceRestClient restClient,
-            BinanceWebSocketClient webSocketClient,
+            ObjectMapper objectMapper,
             RegimeAnalyzerService regimeAnalyzerService,
             MarketDataBroadcaster broadcaster,
             PositionManagerService positionManagerService,
             StrategyEngineService strategyEngineService) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
-        this.webSocketClient = webSocketClient;
+        this.objectMapper = objectMapper;
         this.regimeAnalyzerService = regimeAnalyzerService;
         this.broadcaster = broadcaster;
         this.positionManagerService = positionManagerService;
@@ -60,28 +59,30 @@ public class MarketDataService {
         log.info("Spectator Engine Starting... Initializing Market Data Sync.");
 
         // 1. Carga Inicial (Seed) via REST
-        seedHistoricalData();
+        seedHistoricalData("1h");
+        seedHistoricalData("4h");
 
         // 2. Conecta no WebSocket para atualizações em tempo real
-        startRealtimeStream();
+        startRealtimeStream("1h");
+        startRealtimeStream("4h");
     }
 
-    private void seedHistoricalData() {
-        Candle lastCandle = candleRepository.findTopBySymbolOrderByTimeDesc(TARGET_SYMBOL);
+    private void seedHistoricalData(String timeframe) {
+        Candle lastCandle = candleRepository.findTopBySymbolAndTimeframeOrderByTimeDesc(TARGET_SYMBOL, timeframe);
 
         if (lastCandle == null) {
-            log.info("Database is empty for {}. Fetching initial 1000 candles via REST...", TARGET_SYMBOL);
-            List<Candle> history = restClient.fetchHistoricalCandles(TARGET_SYMBOL, TIMEFRAME, 1000);
+            log.info("Database is empty for {} ({}). Fetching initial 1000 candles via REST...", TARGET_SYMBOL, timeframe);
+            List<Candle> history = restClient.fetchHistoricalCandles(TARGET_SYMBOL, timeframe, 1000);
             // Usando nosso upsert otimizado para salvar a carga inicial
             history.forEach(candleRepository::upsert);
             log.info("Successfully saved {} historical candles to TimescaleDB.", history.size());
         } else {
-            log.info("Database contains data. Last candle time: {}", lastCandle.getTime());
-            fillGap(lastCandle.getTime());
+            log.info("Database contains data for {}. Last candle time: {}", timeframe, lastCandle.getTime());
+            fillGap(timeframe, lastCandle.getTime());
         }
     }
 
-    private void fillGap(java.time.Instant lastCandleTime) {
+    private void fillGap(String timeframe, java.time.Instant lastCandleTime) {
         log.info("Checking for missing candles since {}...", lastCandleTime);
         java.time.Instant currentTime = lastCandleTime;
         java.time.Instant now = java.time.Instant.now();
@@ -89,7 +90,7 @@ public class MarketDataService {
 
         // Loop para paginar gaps que sejam maiores que 1000 candles
         while (currentTime.isBefore(now)) {
-            List<Candle> batch = restClient.fetchHistoricalCandles(TARGET_SYMBOL, TIMEFRAME, 1000, currentTime);
+            List<Candle> batch = restClient.fetchHistoricalCandles(TARGET_SYMBOL, timeframe, 1000, currentTime);
 
             if (batch.isEmpty()) {
                 break;
@@ -126,40 +127,46 @@ public class MarketDataService {
         }
     }
 
-    private void startRealtimeStream() {
-        log.info("Opening WebSocket stream for {} timeframe...", TIMEFRAME);
+    private void startRealtimeStream(String timeframe) {
+        log.info("Opening WebSocket stream for {} timeframe...", timeframe);
 
-        webSocketClient.connect(TARGET_SYMBOL, TIMEFRAME, incomingCandle -> {
+        new BinanceWebSocketClient(objectMapper, incomingCandle -> {
             // 1. Salva o tick atual no banco
             candleRepository.upsert(incomingCandle);
 
-            // 2. Busca os últimos 250 candles para cálculo (traz os mais recentes primeiro)
-            List<Candle> recentCandles = candleRepository.findLastCandles(TARGET_SYMBOL, 250);
+            if ("1h".equals(timeframe)) {
+                // 2. Busca histórico do 1H para as Estratégias
+                List<Candle> recent1h = candleRepository.findLastCandles(TARGET_SYMBOL, "1h", 250);
+                Collections.reverse(recent1h);
 
-            // 3. Inverte a lista para ordem cronológica ascendente (o ta4j exige o mais
-            // antigo primeiro)
-            Collections.reverse(recentCandles);
+                // 3. Busca histórico do 4H para o Regime Macro
+                List<Candle> recent4h = candleRepository.findLastCandles(TARGET_SYMBOL, "4h", 250);
+                Collections.reverse(recent4h);
 
-            // 4. Analisa o regime de mercado atual
-            MarketRegime currentRegime = regimeAnalyzerService.analyze(recentCandles);
+                // 4. Analisa o regime de mercado macro
+                MarketRegime currentRegime = MarketRegime.SIDEWAYS;
+                if (recent4h.size() > 50) {
+                    currentRegime = regimeAnalyzerService.analyze(recent4h);
+                }
 
-            // Trocamos o log.debug por log.info temporariamente para você ver a mágica
-            // acontecer
-            log.info("Tick: {} | Price: {} | Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
+            log.info("Tick: {} | Price: {} | 4H Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
                     currentRegime);
 
             // 5. Avalia posições ativas para SL/TP
             positionManagerService.evaluateLiveTick(TARGET_SYMBOL, incomingCandle.getClose());
 
-            // 6. Strategy processing
-            strategyEngineService.processTick(TARGET_SYMBOL, incomingCandle.getClose(), currentRegime);
+            // 6. Strategy processing repassando os candles de 1h puros
+            strategyEngineService.processTick(TARGET_SYMBOL, incomingCandle.getClose(), currentRegime, recent1h);
 
             // 7. Get open positions to stream to the UI
             List<com.jonasdurau.spectator.core.domain.Position> openPositions = positionManagerService
                     .getOpenPositions(TARGET_SYMBOL);
 
-            // Dispara a atualização para qualquer tela do Vaadin que estiver aberta
-            broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime, openPositions));
-        });
+                // Dispara a atualização para qualquer tela do Vaadin que estiver aberta
+                broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime, openPositions));
+            } else {
+                log.info("Saved 4H tick: {} | Price: {}", incomingCandle.getSymbol(), incomingCandle.getClose());
+            }
+        }).connect(TARGET_SYMBOL, timeframe);
     }
 }

@@ -16,22 +16,22 @@ import java.util.List;
 public interface CandleRepository extends JpaRepository<Candle, CandleId> {
 
     /**
-     * Busca os candles mais recentes para um símbolo, ordenados do mais novo para o mais velho.
+     * Busca os candles mais recentes para um símbolo e tempo grafico, ordenados do mais novo para o mais velho.
      * Útil para pegar o estado atual do mercado (ex: últimos 200 para calcular a EMA 200).
      */
-    @Query("SELECT c FROM Candle c WHERE c.symbol = :symbol ORDER BY c.time DESC LIMIT :limit")
-    List<Candle> findLastCandles(String symbol, int limit);
+    @Query("SELECT c FROM Candle c WHERE c.symbol = :symbol AND c.timeframe = :timeframe ORDER BY c.time DESC LIMIT :limit")
+    List<Candle> findLastCandles(String symbol, String timeframe, int limit);
 
     /**
      * Busca um range específico (para Backtesting ou gráficos históricos).
      */
-    List<Candle> findBySymbolAndTimeBetweenOrderByTimeAsc(String symbol, Instant start, Instant end);
+    List<Candle> findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(String symbol, String timeframe, Instant start, Instant end);
 
     /**
-     * Verifica qual foi o último candle gravado no banco para saber de onde retomar a sincronização.
+     * Verifica qual foi o último candle gravado no banco pra saber de onde retomar a sincronização.
      * Retorna o Top 1 ordenado por tempo decrescente.
      */
-    Candle findTopBySymbolOrderByTimeDesc(String symbol);
+    Candle findTopBySymbolAndTimeframeOrderByTimeDesc(String symbol, String timeframe);
 
     /**
      * UPSERT nativo otimizado para PostgreSQL/TimescaleDB.
@@ -42,9 +42,9 @@ public interface CandleRepository extends JpaRepository<Candle, CandleId> {
     @Modifying
     @Transactional
     @Query(value = """
-        INSERT INTO market_candles (symbol, time, open, high, low, close, volume)
-        VALUES (:#{#c.symbol}, :#{#c.time}, :#{#c.open}, :#{#c.high}, :#{#c.low}, :#{#c.close}, :#{#c.volume})
-        ON CONFLICT (symbol, time)
+        INSERT INTO market_candles (symbol, timeframe, time, open, high, low, close, volume)
+        VALUES (:#{#c.symbol}, :#{#c.timeframe}, :#{#c.time}, :#{#c.open}, :#{#c.high}, :#{#c.low}, :#{#c.close}, :#{#c.volume})
+        ON CONFLICT (symbol, timeframe, time)
         DO UPDATE SET
             open = EXCLUDED.open,
             high = EXCLUDED.high,
