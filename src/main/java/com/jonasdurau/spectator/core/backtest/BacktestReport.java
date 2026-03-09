@@ -1,0 +1,35 @@
+package com.jonasdurau.spectator.core.backtest;
+
+public record BacktestReport(
+        String strategyName,
+        String symbol,
+        int totalTrades,
+        int winningTrades,
+        int losingTrades,
+        double winRate,
+        double netProfit,
+        double maxDrawdown,
+        double initialCapital,
+        double finalCapital
+) {
+    @Override
+    public String toString() {
+        return String.format("""
+            =========================================
+            BACKTEST REPORT: %s
+            Symbol: %s
+            -----------------------------------------
+            Initial Capital: $%.2f
+            Final Capital:   $%.2f
+            Net Profit:      $%.2f (%.2f%%)
+            Max Drawdown:    %.2f%%
+            -----------------------------------------
+            Total Trades:    %d
+            Win Rate:        %.2f%% (%d W / %d L)
+            =========================================
+            """,
+            strategyName, symbol, initialCapital, finalCapital,
+            netProfit, (netProfit / initialCapital) * 100, maxDrawdown,
+            totalTrades, winRate, winningTrades, losingTrades);
+    }
+}
