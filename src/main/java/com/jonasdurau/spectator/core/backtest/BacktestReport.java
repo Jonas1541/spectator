@@ -1,5 +1,6 @@
 package com.jonasdurau.spectator.core.backtest;
 
+import java.time.Instant;
 import java.util.List;
 
 import com.jonasdurau.spectator.core.domain.RegimeChangeEvent;
@@ -7,6 +8,8 @@ import com.jonasdurau.spectator.core.domain.RegimeChangeEvent;
 public record BacktestReport(
         String strategyName,
         String symbol,
+        Instant startTime,
+        Instant endTime,
         int totalTrades,
         int winningTrades,
         int losingTrades,

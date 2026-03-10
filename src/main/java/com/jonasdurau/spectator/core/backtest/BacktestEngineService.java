@@ -187,7 +187,7 @@ public class BacktestEngineService {
         MonteCarloReport mcReport = monteCarloSimulator.runSimulation(tradeLog, initialCapital);
 
         return new BacktestReport(
-                executionName, symbol, totalTrades, winningTrades, losingTrades, 
+                executionName, symbol, start, end, totalTrades, winningTrades, losingTrades, 
                 winRate * 100, netProfit, maxDrawdown, expectancy, sharpeRatio,
                 initialCapital, currentCapital, tradeLog, regimeChanges, mcReport
         );

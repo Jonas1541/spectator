@@ -3,6 +3,8 @@ package com.jonasdurau.spectator.ui.view;
 import com.jonasdurau.spectator.core.backtest.BacktestEngineService;
 import com.jonasdurau.spectator.core.backtest.BacktestReport;
 import com.jonasdurau.spectator.core.backtest.MonteCarloReport;
+import com.jonasdurau.spectator.core.backtest.WalkForwardAnalyzerService;
+import com.jonasdurau.spectator.core.backtest.WalkForwardReport;
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.repository.CandleRepository;
 import com.jonasdurau.spectator.core.service.HistoricalSyncService;
@@ -12,8 +14,10 @@ import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.checkbox.Checkbox;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
+import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
@@ -25,7 +29,9 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,42 +39,48 @@ import java.util.List;
 @PageTitle("Spectator | Backtest Studio")
 public class BacktestView extends VerticalLayout {
 
-    // Helper Record para o menu suspenso
+    // Helper Record for the dropdown menu
     public record StrategyOption(String name, List<TradingStrategy> strategies) {}
 
     private final HistoricalSyncService syncService;
     private final BacktestEngineService backtestEngine;
     private final CandleRepository candleRepository;
     private final List<TradingStrategy> availableStrategies;
+    private final WalkForwardAnalyzerService walkForwardAnalyzer;
 
     // UI Components
     private final DatePicker startDatePicker = new DatePicker("Start Date");
     private final DatePicker endDatePicker = new DatePicker("End Date");
-    private final ComboBox<StrategyOption> strategySelector = new ComboBox<>("Strategy Mode"); // <-- Mudou o tipo aqui
+    private final ComboBox<StrategyOption> strategySelector = new ComboBox<>("Strategy Mode");
     private final Button runButton = new Button("Sync & Run Backtest");
+    private final Checkbox walkForwardToggle = new Checkbox("Walk-Forward Analysis (5 Slices)");
     
     // Results Board
     private final Span winRateLabel = new Span("-");
     private final Span pnlLabel = new Span("-");
     private final Span tradesLabel = new Span("-");
     private final Span drawdownLabel = new Span("-");
-    
-    private final TradingViewChart chart = new TradingViewChart();
-
     private final Span expectancyLabel = new Span("-");
     private final Span sharpeLabel = new Span("-");
-
     private final Span riskOfRuinLabel = new Span("-");
     private final Span medianDdLabel = new Span("-");
+    
+    // Walk-Forward Data Grid
+    private final Grid<BacktestReport> wfaGrid = new Grid<>(BacktestReport.class, false);
+    private final Span consistencyLabel = new Span("");
+
+    private final TradingViewChart chart = new TradingViewChart();
 
     public BacktestView(HistoricalSyncService syncService, 
                         BacktestEngineService backtestEngine, 
                         CandleRepository candleRepository, 
-                        List<TradingStrategy> availableStrategies) {
+                        List<TradingStrategy> availableStrategies,
+                        WalkForwardAnalyzerService walkForwardAnalyzer) {
         this.syncService = syncService;
         this.backtestEngine = backtestEngine;
         this.candleRepository = candleRepository;
         this.availableStrategies = availableStrategies;
+        this.walkForwardAnalyzer = walkForwardAnalyzer;
 
         setSizeFull();
         setPadding(true);
@@ -99,13 +111,12 @@ public class BacktestView extends VerticalLayout {
         startDatePicker.setValue(LocalDate.now().minusMonths(3));
         endDatePicker.setValue(LocalDate.now());
         
-        // --- MONTANDO AS OPÇÕES DO MENU ---
         List<StrategyOption> options = new ArrayList<>();
         
-        // 1. A opção principal do Master Engine (Leva todas as estratégias)
+        // Master Engine (All strategies)
         options.add(new StrategyOption("Master Engine (Auto-Switch)", availableStrategies));
         
-        // 2. As opções isoladas para debug
+        // Isolated options for debugging
         for (TradingStrategy s : availableStrategies) {
             options.add(new StrategyOption(s.getName() + " (Isolated)", List.of(s)));
         }
@@ -119,7 +130,7 @@ public class BacktestView extends VerticalLayout {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(e -> executeBacktest());
 
-        controls.add(strategySelector, startDatePicker, endDatePicker, runButton);
+        controls.add(strategySelector, startDatePicker, endDatePicker, walkForwardToggle, runButton);
         add(controls);
     }
 
@@ -139,6 +150,23 @@ public class BacktestView extends VerticalLayout {
         board.add(createMetric("MC Median DD", medianDdLabel));
 
         add(board);
+
+        // CONFIGURATION OF WALK-FORWARD GRID (Hidden initially)
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM yyyy").withZone(ZoneId.of("UTC"));
+        
+        wfaGrid.addColumn(BacktestReport::strategyName).setHeader("Period").setAutoWidth(true);
+        wfaGrid.addColumn(r -> formatter.format(r.startTime()) + " - " + formatter.format(r.endTime())).setHeader("Dates").setAutoWidth(true);
+        wfaGrid.addColumn(r -> String.format("$%.2f", r.netProfit())).setHeader("Net Profit").setAutoWidth(true);
+        wfaGrid.addColumn(r -> String.format("%.2f%%", r.winRate())).setHeader("Win Rate").setAutoWidth(true);
+        wfaGrid.addColumn(r -> String.format("%.2f%%", r.maxDrawdown())).setHeader("Max DD").setAutoWidth(true);
+        wfaGrid.addColumn(r -> String.format("%.2f", r.sharpeRatio())).setHeader("Sharpe").setAutoWidth(true);
+        
+        wfaGrid.addThemeVariants(com.vaadin.flow.component.grid.GridVariant.LUMO_COMPACT, com.vaadin.flow.component.grid.GridVariant.LUMO_ROW_STRIPES);
+        wfaGrid.setVisible(false);
+        consistencyLabel.setVisible(false);
+        consistencyLabel.addClassNames(LumoUtility.FontSize.LARGE, LumoUtility.FontWeight.BOLD, LumoUtility.Margin.Top.MEDIUM);
+
+        add(consistencyLabel, wfaGrid);
     }
 
     private VerticalLayout createMetric(String title, Span valueLabel) {
@@ -169,26 +197,58 @@ public class BacktestView extends VerticalLayout {
                 syncService.syncPeriod("BTCUSDT", "4h", start, end);
                 syncService.syncPeriod("BTCUSDT", "1h", start, end);
 
-                // Passa o nome da opção e a lista de estratégias para o motor!
-                BacktestReport report = backtestEngine.runBacktest(
-                        selectedOption.name(), 
-                        selectedOption.strategies(), 
-                        "BTCUSDT", 
-                        start, 
-                        end, 
-                        10000.0
-                );
-                
-                List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
-
-                ui.access(() -> {
-                    updateResultsBoard(report);
-                    chart.setBacktestData(chartData, report.tradeLog(), report.regimeChanges());
+                if (walkForwardToggle.getValue()) {
+                    // MODO WALK FORWARD (5 Fatias)
                     
-                    runButton.setEnabled(true);
-                    runButton.setText("Sync & Run Backtest");
-                    Notification.show("Backtest completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-                });
+                    // 1. Roda o backtest COMPLETO para preencher o painel superior e o gráfico com tudo!
+                    BacktestReport overallReport = backtestEngine.runBacktest(
+                            selectedOption.name() + " (Overall)", selectedOption.strategies(), "BTCUSDT", start, end, 10000.0
+                    );
+
+                    // 2. Roda o fatiador para preencher a tabela de consistência
+                    WalkForwardReport wfaReport = walkForwardAnalyzer.runAnalysis(
+                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, 10000.0, 5
+                    );
+                    
+                    // 3. Pega TODOS os candles do período total para o gráfico
+                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
+
+                    ui.access(() -> {
+                        wfaGrid.setItems(wfaReport.sliceReports());
+                        wfaGrid.setVisible(true);
+                        
+                        consistencyLabel.setText(String.format("Walk-Forward Consistency: %.0f%% (%d/%d profitable slices)", 
+                                wfaReport.consistencyScore(), wfaReport.profitableSlices(), wfaReport.totalSlices()));
+                        consistencyLabel.setVisible(true);
+                        
+                        // CORREÇÃO APLICADA: Agora usamos o overallReport!
+                        updateResultsBoard(overallReport);
+                        chart.setBacktestData(chartData, overallReport.tradeLog(), overallReport.regimeChanges());
+                        
+                        runButton.setEnabled(true);
+                        runButton.setText("Sync & Run Backtest");
+                        Notification.show("Walk-Forward completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                    });
+
+                } else {
+                    // STANDARD MODE
+                    BacktestReport report = backtestEngine.runBacktest(
+                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, 10000.0
+                    );
+                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
+
+                    ui.access(() -> {
+                        wfaGrid.setVisible(false);
+                        consistencyLabel.setVisible(false);
+                        
+                        updateResultsBoard(report);
+                        chart.setBacktestData(chartData, report.tradeLog(), report.regimeChanges());
+                        
+                        runButton.setEnabled(true);
+                        runButton.setText("Sync & Run Backtest");
+                        Notification.show("Backtest completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                    });
+                }
 
             } catch (Exception e) {
                 ui.access(() -> {
@@ -215,12 +275,10 @@ public class BacktestView extends VerticalLayout {
         drawdownLabel.setText(String.format("%.2f%%", report.maxDrawdown()));
         drawdownLabel.addClassName(LumoUtility.TextColor.ERROR);
 
-        // Formata a Expectância (Verde se for lucrativa, vermelho se quebrar a conta)
         expectancyLabel.setText(String.format("$%.2f", report.expectancy()));
         expectancyLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
         expectancyLabel.addClassName(report.expectancy() > 0 ? LumoUtility.TextColor.SUCCESS : LumoUtility.TextColor.ERROR);
 
-        // Formata o Sharpe Ratio
         sharpeLabel.setText(String.format("%.2f", report.sharpeRatio()));
         sharpeLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
         if (report.sharpeRatio() > 1.0) {
@@ -229,7 +287,6 @@ public class BacktestView extends VerticalLayout {
             sharpeLabel.addClassName(LumoUtility.TextColor.ERROR);
         }
 
-        // Formata o Risco de Ruína
         MonteCarloReport mc = report.monteCarlo();
         riskOfRuinLabel.setText(String.format("%.2f%%", mc.riskOfRuin()));
         riskOfRuinLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR, LumoUtility.TextColor.WARNING);
@@ -238,10 +295,9 @@ public class BacktestView extends VerticalLayout {
         } else if (mc.riskOfRuin() < 5.0) {
             riskOfRuinLabel.addClassName(LumoUtility.TextColor.WARNING);
         } else {
-            riskOfRuinLabel.addClassName(LumoUtility.TextColor.ERROR); // Risco de quebrar muito alto!
+            riskOfRuinLabel.addClassName(LumoUtility.TextColor.ERROR);
         }
 
-        // Formata a Mediana de Drawdown do Monte Carlo
         medianDdLabel.setText(String.format("%.2f%%", mc.medianMaxDrawdown()));
         medianDdLabel.addClassName(LumoUtility.TextColor.ERROR);
     }
