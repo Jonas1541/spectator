@@ -100,7 +100,7 @@ public class BacktestView extends VerticalLayout {
     private void createHeader() {
         H1 title = new H1("Backtest Studio");
         title.addClassNames(LumoUtility.FontSize.XXLARGE, LumoUtility.Margin.Bottom.NONE);
-        
+
         Button liveButton = new Button("⚡ Live Dashboard");
         liveButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         liveButton.addClickListener(e -> UI.getCurrent().navigate(DashboardView.class)); // Volta pra tela principal
@@ -273,42 +273,56 @@ public class BacktestView extends VerticalLayout {
     }
 
     private void updateResultsBoard(BacktestReport report) {
-        winRateLabel.setText(String.format("%.2f%%", report.winRate()));
-        
-        String pnlStr = String.format("$%.2f", report.netProfit());
-        pnlLabel.setText(pnlStr);
-        pnlLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
-        pnlLabel.addClassName(report.netProfit() >= 0 ? LumoUtility.TextColor.SUCCESS : LumoUtility.TextColor.ERROR);
+        // As cores exatas do TradingView para manter o design consistente
+        String colorGreen = "#26a69a";
+        String colorRed = "#ef5350";
+        String colorYellow = "#f5cb5c";
 
+        winRateLabel.setText(String.format(java.util.Locale.US, "%.2f%%", report.winRate()));
         tradesLabel.setText(String.format("%d", report.totalTrades()));
         
-        drawdownLabel.setText(String.format("%.2f%%", report.maxDrawdown()));
-        drawdownLabel.addClassName(LumoUtility.TextColor.ERROR);
+        // --- NET PROFIT ---
+        String pnlStr = String.format(java.util.Locale.US, "$%.2f", report.netProfit());
+        pnlLabel.setText(pnlStr);
+        pnlLabel.getStyle().set("color", report.netProfit() >= 0 ? colorGreen : colorRed);
 
-        expectancyLabel.setText(String.format("$%.2f", report.expectancy()));
-        expectancyLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
-        expectancyLabel.addClassName(report.expectancy() > 0 ? LumoUtility.TextColor.SUCCESS : LumoUtility.TextColor.ERROR);
-
-        sharpeLabel.setText(String.format("%.2f", report.sharpeRatio()));
-        sharpeLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
-        if (report.sharpeRatio() > 1.0) {
-            sharpeLabel.addClassName(LumoUtility.TextColor.SUCCESS);
-        } else if (report.sharpeRatio() < 0.0) {
-            sharpeLabel.addClassName(LumoUtility.TextColor.ERROR);
-        }
-
-        MonteCarloReport mc = report.monteCarlo();
-        riskOfRuinLabel.setText(String.format("%.2f%%", mc.riskOfRuin()));
-        riskOfRuinLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR, LumoUtility.TextColor.WARNING);
-        if (mc.riskOfRuin() < 1.0) {
-            riskOfRuinLabel.addClassName(LumoUtility.TextColor.SUCCESS);
-        } else if (mc.riskOfRuin() < 5.0) {
-            riskOfRuinLabel.addClassName(LumoUtility.TextColor.WARNING);
+        // --- DRAWDOWN ---
+        drawdownLabel.setText(String.format(java.util.Locale.US, "%.2f%%", report.maxDrawdown()));
+        if (report.maxDrawdown() < 10.0) {
+            drawdownLabel.getStyle().set("color", colorGreen);
+        } else if (report.maxDrawdown() <= 20.0) {
+            drawdownLabel.getStyle().set("color", colorYellow);
         } else {
-            riskOfRuinLabel.addClassName(LumoUtility.TextColor.ERROR);
+            drawdownLabel.getStyle().set("color", colorRed);
         }
 
-        medianDdLabel.setText(String.format("%.2f%%", mc.medianMaxDrawdown()));
-        medianDdLabel.addClassName(LumoUtility.TextColor.ERROR);
+        // --- EXPECTANCY ---
+        expectancyLabel.setText(String.format(java.util.Locale.US, "$%.2f", report.expectancy()));
+        expectancyLabel.getStyle().set("color", report.expectancy() > 0 ? colorGreen : colorRed);
+
+        // --- SHARPE RATIO ---
+        sharpeLabel.setText(String.format(java.util.Locale.US, "%.2f", report.sharpeRatio()));
+        if (report.sharpeRatio() >= 1.0) {
+            sharpeLabel.getStyle().set("color", colorGreen);
+        } else if (report.sharpeRatio() > 0.0) {
+            sharpeLabel.getStyle().set("color", colorYellow);
+        } else {
+            sharpeLabel.getStyle().set("color", colorRed);
+        }
+
+        // --- RISK OF RUIN (Monte Carlo) ---
+        MonteCarloReport mc = report.monteCarlo();
+        riskOfRuinLabel.setText(String.format(java.util.Locale.US, "%.2f%%", mc.riskOfRuin()));
+        if (mc.riskOfRuin() < 1.0) {
+            riskOfRuinLabel.getStyle().set("color", colorGreen);
+        } else if (mc.riskOfRuin() < 5.0) {
+            riskOfRuinLabel.getStyle().set("color", colorYellow);
+        } else {
+            riskOfRuinLabel.getStyle().set("color", colorRed);
+        }
+
+        // --- MEDIAN DRAWDOWN ---
+        medianDdLabel.setText(String.format(java.util.Locale.US, "%.2f%%", mc.medianMaxDrawdown()));
+        medianDdLabel.getStyle().set("color", colorRed);
     }
 }
