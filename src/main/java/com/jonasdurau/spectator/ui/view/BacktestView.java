@@ -25,11 +25,15 @@ import com.vaadin.flow.theme.lumo.LumoUtility;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
-@Route("backtest") // Acessível em http://localhost:8080/backtest
+@Route("backtest")
 @PageTitle("Spectator | Backtest Studio")
 public class BacktestView extends VerticalLayout {
+
+    // Helper Record para o menu suspenso
+    public record StrategyOption(String name, List<TradingStrategy> strategies) {}
 
     private final HistoricalSyncService syncService;
     private final BacktestEngineService backtestEngine;
@@ -39,7 +43,7 @@ public class BacktestView extends VerticalLayout {
     // UI Components
     private final DatePicker startDatePicker = new DatePicker("Start Date");
     private final DatePicker endDatePicker = new DatePicker("End Date");
-    private final ComboBox<TradingStrategy> strategySelector = new ComboBox<>("Strategy");
+    private final ComboBox<StrategyOption> strategySelector = new ComboBox<>("Strategy Mode"); // <-- Mudou o tipo aqui
     private final Button runButton = new Button("Sync & Run Backtest");
     
     // Results Board
@@ -48,7 +52,6 @@ public class BacktestView extends VerticalLayout {
     private final Span tradesLabel = new Span("-");
     private final Span drawdownLabel = new Span("-");
     
-    // O mesmo gráfico usado no Dashboard!
     private final TradingViewChart chart = new TradingViewChart();
 
     public BacktestView(HistoricalSyncService syncService, 
@@ -67,12 +70,11 @@ public class BacktestView extends VerticalLayout {
         createControlPanel();
         createResultsBoard();
         
-        add(chart); // Adiciona o gráfico na tela
+        add(chart);
     }
 
     @Override
     protected void onAttach(AttachEvent attachEvent) {
-        // Garante o Dark Mode também nesta rota
         attachEvent.getUI().getPage().executeJs("setTimeout(() => document.documentElement.setAttribute('theme', 'dark'), 0);");
     }
 
@@ -87,14 +89,24 @@ public class BacktestView extends VerticalLayout {
         controls.setAlignItems(Alignment.BASELINE);
         controls.setWidthFull();
 
-        // Valores padrão (Últimos 3 meses)
         startDatePicker.setValue(LocalDate.now().minusMonths(3));
         endDatePicker.setValue(LocalDate.now());
         
-        strategySelector.setItems(availableStrategies);
-        strategySelector.setItemLabelGenerator(TradingStrategy::getName);
-        if (!availableStrategies.isEmpty()) {
-            strategySelector.setValue(availableStrategies.get(0));
+        // --- MONTANDO AS OPÇÕES DO MENU ---
+        List<StrategyOption> options = new ArrayList<>();
+        
+        // 1. A opção principal do Master Engine (Leva todas as estratégias)
+        options.add(new StrategyOption("Master Engine (Auto-Switch)", availableStrategies));
+        
+        // 2. As opções isoladas para debug
+        for (TradingStrategy s : availableStrategies) {
+            options.add(new StrategyOption(s.getName() + " (Isolated)", List.of(s)));
+        }
+
+        strategySelector.setItems(options);
+        strategySelector.setItemLabelGenerator(StrategyOption::name);
+        if (!options.isEmpty()) {
+            strategySelector.setValue(options.get(0));
         }
 
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -136,31 +148,32 @@ public class BacktestView extends VerticalLayout {
         runButton.setEnabled(false);
         runButton.setText("Downloading & Processing...");
         
-        // Converte as datas locais para UTC
         java.time.Instant start = startDatePicker.getValue().atStartOfDay().toInstant(ZoneOffset.UTC);
         java.time.Instant end = endDatePicker.getValue().atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
-        TradingStrategy strategy = strategySelector.getValue();
+        StrategyOption selectedOption = strategySelector.getValue();
 
-        // Usa a thread da UI para delegar o trabalho pesado e não travar o navegador
         UI ui = UI.getCurrent();
         Thread backgroundThread = new Thread(() -> {
             try {
-                // 1. Sincroniza os dados faltantes do passado
                 syncService.syncPeriod("BTCUSDT", "4h", start, end);
                 syncService.syncPeriod("BTCUSDT", "1h", start, end);
 
-                // 2. Roda a máquina do tempo com $10.000 de banca inicial
-                BacktestReport report = backtestEngine.runBacktest(strategy, "BTCUSDT", start, end, 10000.0);
+                // Passa o nome da opção e a lista de estratégias para o motor!
+                BacktestReport report = backtestEngine.runBacktest(
+                        selectedOption.name(), 
+                        selectedOption.strategies(), 
+                        "BTCUSDT", 
+                        start, 
+                        end, 
+                        10000.0
+                );
                 
-                // 3. Puxa os candles para o gráfico visual
                 List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
 
-                // 4. Atualiza a tela com segurança (voltando para a thread da UI)
                 ui.access(() -> {
                     updateResultsBoard(report);
-                    
                     chart.setBacktestData(chartData, report.tradeLog());
-
+                    
                     runButton.setEnabled(true);
                     runButton.setText("Sync & Run Backtest");
                     Notification.show("Backtest completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
