@@ -176,6 +176,118 @@ public class TradingViewChart extends Div {
         }
     }
 
+    public void setBacktestData(List<Candle> candles, List<com.jonasdurau.spectator.core.backtest.BacktestTrade> trades) {
+        if (candles == null || candles.isEmpty()) return;
+
+        // Higieniza as velas
+        List<Map<String, Object>> safeData = candles.stream()
+                .filter(c -> c.getTime() != null)
+                .collect(Collectors.toMap(
+                        c -> c.getTime().getEpochSecond(),
+                        c -> c,
+                        (existing, replacement) -> existing
+                ))
+                .values().stream()
+                .sorted(Comparator.comparing(Candle::getTime))
+                .map(this::candleToMap)
+                .toList();
+
+        // Mapeia os eventos para o formato do TradingView
+        List<Map<String, Object>> markers = (trades == null) ? List.of() : trades.stream().map(t -> {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("time", t.time().getEpochSecond());
+            
+            if (t.isEntry()) {
+                if (t.side() == com.jonasdurau.spectator.core.domain.TradeSide.LONG) {
+                    m.put("position", "belowBar");
+                    m.put("color", "#26a69a"); // Verde
+                    m.put("shape", "arrowUp");
+                    m.put("text", "Buy");
+                } else {
+                    m.put("position", "aboveBar");
+                    m.put("color", "#ef5350"); // Vermelho
+                    m.put("shape", "arrowDown");
+                    m.put("text", "Sell");
+                }
+            } else {
+                String pnlText = String.format(java.util.Locale.US, "%.2f", t.pnl());
+                String label = (t.pnl() >= 0 ? "TP (+" + pnlText + ")" : "SL (" + pnlText + ")");
+                String color = t.pnl() >= 0 ? "#f5cb5c" : "#787878"; // Amarelo (Lucro), Cinza (Prejuízo)
+                
+                if (t.side() == com.jonasdurau.spectator.core.domain.TradeSide.LONG) {
+                    m.put("position", "aboveBar"); 
+                    m.put("shape", "arrowDown");
+                } else {
+                    m.put("position", "belowBar");
+                    m.put("shape", "arrowUp");
+                }
+                m.put("color", color);
+                m.put("text", label);
+            }
+            return m;
+        }).toList();
+
+        try {
+            String candlesJson = mapper.writeValueAsString(safeData);
+            String markersJson = mapper.writeValueAsString(markers);
+
+            getElement().executeJs("""
+                const container = $0;
+                const candleData = JSON.parse($1);
+                const rawMarkerData = JSON.parse($2);
+
+                const applyData = () => {
+                    if (container.candlestickSeries) {
+                        try {
+                            container.candlestickSeries.setData(candleData);
+                            
+                            if (rawMarkerData && rawMarkerData.length > 0) {
+                                // 1. Ordena estritamente pelo tempo
+                                rawMarkerData.sort((a, b) => a.time - b.time);
+                                
+                                // 2. Higienizador de Duplicatas (Mescla eventos no mesmo candle)
+                                const uniqueMarkers = [];
+                                const markerMap = new Map();
+                                
+                                rawMarkerData.forEach(m => {
+                                    if (markerMap.has(m.time)) {
+                                        const existing = markerMap.get(m.time);
+                                        existing.text = existing.text + " & " + m.text; // Junta os textos
+                                    } else {
+                                        markerMap.set(m.time, m);
+                                        uniqueMarkers.push(m);
+                                    }
+                                });
+                                
+                                // 3. A GRANDE MUDANÇA DA V5: O motor de plugins
+                                if (container.markersPlugin) {
+                                    container.markersPlugin.setMarkers(uniqueMarkers);
+                                } else {
+                                    container.markersPlugin = window.LightweightCharts.createSeriesMarkers(
+                                        container.candlestickSeries, 
+                                        uniqueMarkers
+                                    );
+                                }
+                            }
+                            
+                            if (candleData.length > 0) {
+                                container.chart.timeScale().fitContent();
+                            }
+                        } catch(e) {
+                            console.error("TradingView Apply Error:", e);
+                        }
+                    } else {
+                        setTimeout(applyData, 100);
+                    }
+                };
+                applyData();
+            """, getElement(), candlesJson, markersJson);
+
+        } catch (JsonProcessingException e) {
+            System.err.println("Erro ao serializar dados do backtest: " + e.getMessage());
+        }
+    }
+
     private Map<String, Object> candleToMap(Candle c) {
         return Map.of(
                 "time", c.getTime().getEpochSecond(),

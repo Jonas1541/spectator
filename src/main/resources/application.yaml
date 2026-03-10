@@ -17,7 +17,7 @@ spring:
   # Configuração do JPA / Hibernate
   jpa:
     open-in-view: false # Boa prática de performance
-    show-sql: true
+    show-sql: false
     hibernate:
       ddl-auto: validate # Em produção usamos 'validate'. O Flyway que cria as tabelas.
     properties:
@@ -40,4 +40,4 @@ spring:
 
 # Configurações do Vaadin
 vaadin:
-  launch-browser: false # Para não abrir aba nova toda vez que reiniciar
+  launch-browser: true

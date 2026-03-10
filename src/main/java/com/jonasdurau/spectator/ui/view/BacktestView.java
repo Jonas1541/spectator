@@ -14,7 +14,6 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.html.H1;
-import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
@@ -159,7 +158,9 @@ public class BacktestView extends VerticalLayout {
                 // 4. Atualiza a tela com segurança (voltando para a thread da UI)
                 ui.access(() -> {
                     updateResultsBoard(report);
-                    chart.setHistoricalData(chartData);
+                    
+                    chart.setBacktestData(chartData, report.tradeLog());
+
                     runButton.setEnabled(true);
                     runButton.setText("Sync & Run Backtest");
                     Notification.show("Backtest completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);

@@ -1,5 +1,7 @@
 package com.jonasdurau.spectator.core.backtest;
 
+import java.util.List;
+
 public record BacktestReport(
         String strategyName,
         String symbol,
@@ -10,7 +12,8 @@ public record BacktestReport(
         double netProfit,
         double maxDrawdown,
         double initialCapital,
-        double finalCapital
+        double finalCapital,
+        List<BacktestTrade> tradeLog
 ) {
     @Override
     public String toString() {

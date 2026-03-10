@@ -49,6 +49,9 @@ public class BacktestEngineService {
         int winningTrades = 0;
         int losingTrades = 0;
 
+        //A lista que vai guardar as setinhas!
+        java.util.List<BacktestTrade> tradeLog = new java.util.ArrayList<>();
+
         // Estado do Trade Atual
         boolean inPosition = false;
         TradeSide currentSide = null;
@@ -103,6 +106,8 @@ public class BacktestEngineService {
                         if (drawdown > maxDrawdown) maxDrawdown = drawdown;
                     }
 
+                    //Registramos a Saída (Close)
+                    tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, exitPrice, pnl));
                     inPosition = false;
                 }
                 continue; // Se estamos em posição, não abrimos outra (Anti-martingale)
@@ -141,6 +146,9 @@ public class BacktestEngineService {
                 double riskAmount = currentCapital * 0.01;
                 double stopDistance = Math.abs(entryPrice - stopLoss);
                 positionQuantity = riskAmount / stopDistance;
+
+                //Registramos a Entrada (Open)
+                tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, true, entryPrice, 0.0));
             }
         }
 
@@ -151,7 +159,7 @@ public class BacktestEngineService {
 
         return new BacktestReport(
                 strategy.getName(), symbol, totalTrades, winningTrades, losingTrades, 
-                winRate, netProfit, maxDrawdown, initialCapital, currentCapital
+                winRate, netProfit, maxDrawdown, initialCapital, currentCapital, tradeLog
         );
     }
 }
