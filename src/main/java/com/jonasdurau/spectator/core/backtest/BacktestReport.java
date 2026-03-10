@@ -18,7 +18,8 @@ public record BacktestReport(
         double initialCapital,
         double finalCapital,
         List<BacktestTrade> tradeLog,
-        List<RegimeChangeEvent> regimeChanges
+        List<RegimeChangeEvent> regimeChanges,
+        MonteCarloReport monteCarlo
 ) {
     @Override
     public String toString() {

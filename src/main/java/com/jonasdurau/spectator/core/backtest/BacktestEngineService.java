@@ -22,13 +22,15 @@ public class BacktestEngineService {
 
     private final CandleRepository candleRepository;
     private final RegimeAnalyzerService regimeAnalyzerService;
+    private final MonteCarloSimulatorService monteCarloSimulator;
 
     // Precisamos de no mínimo 200 candles de "warmup" para as médias móveis existirem
     private static final int WARMUP_PERIOD = 200; 
 
-    public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService) {
+    public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator) {
         this.candleRepository = candleRepository;
         this.regimeAnalyzerService = regimeAnalyzerService;
+        this.monteCarloSimulator = monteCarloSimulator;
     }
 
     public BacktestReport runBacktest(String executionName, List<TradingStrategy> strategies, String symbol, Instant start, Instant end, double initialCapital) {
@@ -181,10 +183,13 @@ public class BacktestEngineService {
             }
         }
 
+        // Roda as 2000 simulações de Monte Carlo
+        MonteCarloReport mcReport = monteCarloSimulator.runSimulation(tradeLog, initialCapital);
+
         return new BacktestReport(
                 executionName, symbol, totalTrades, winningTrades, losingTrades, 
                 winRate * 100, netProfit, maxDrawdown, expectancy, sharpeRatio,
-                initialCapital, currentCapital, tradeLog, regimeChanges
+                initialCapital, currentCapital, tradeLog, regimeChanges, mcReport
         );
     }
 }

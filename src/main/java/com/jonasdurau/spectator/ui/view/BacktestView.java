@@ -2,6 +2,7 @@ package com.jonasdurau.spectator.ui.view;
 
 import com.jonasdurau.spectator.core.backtest.BacktestEngineService;
 import com.jonasdurau.spectator.core.backtest.BacktestReport;
+import com.jonasdurau.spectator.core.backtest.MonteCarloReport;
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.repository.CandleRepository;
 import com.jonasdurau.spectator.core.service.HistoricalSyncService;
@@ -56,6 +57,9 @@ public class BacktestView extends VerticalLayout {
 
     private final Span expectancyLabel = new Span("-");
     private final Span sharpeLabel = new Span("-");
+
+    private final Span riskOfRuinLabel = new Span("-");
+    private final Span medianDdLabel = new Span("-");
 
     public BacktestView(HistoricalSyncService syncService, 
                         BacktestEngineService backtestEngine, 
@@ -131,6 +135,8 @@ public class BacktestView extends VerticalLayout {
         board.add(createMetric("Max Drawdown", drawdownLabel));
         board.add(createMetric("Expectancy", expectancyLabel));
         board.add(createMetric("Sharpe Ratio", sharpeLabel));
+        board.add(createMetric("Risk of Ruin", riskOfRuinLabel));
+        board.add(createMetric("MC Median DD", medianDdLabel));
 
         add(board);
     }
@@ -222,5 +228,21 @@ public class BacktestView extends VerticalLayout {
         } else if (report.sharpeRatio() < 0.0) {
             sharpeLabel.addClassName(LumoUtility.TextColor.ERROR);
         }
+
+        // Formata o Risco de Ruína
+        MonteCarloReport mc = report.monteCarlo();
+        riskOfRuinLabel.setText(String.format("%.2f%%", mc.riskOfRuin()));
+        riskOfRuinLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR, LumoUtility.TextColor.WARNING);
+        if (mc.riskOfRuin() < 1.0) {
+            riskOfRuinLabel.addClassName(LumoUtility.TextColor.SUCCESS);
+        } else if (mc.riskOfRuin() < 5.0) {
+            riskOfRuinLabel.addClassName(LumoUtility.TextColor.WARNING);
+        } else {
+            riskOfRuinLabel.addClassName(LumoUtility.TextColor.ERROR); // Risco de quebrar muito alto!
+        }
+
+        // Formata a Mediana de Drawdown do Monte Carlo
+        medianDdLabel.setText(String.format("%.2f%%", mc.medianMaxDrawdown()));
+        medianDdLabel.addClassName(LumoUtility.TextColor.ERROR);
     }
 }
