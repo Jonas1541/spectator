@@ -2,10 +2,14 @@ package com.jonasdurau.spectator.ui.components;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jonasdurau.spectator.core.backtest.BacktestTrade;
 import com.jonasdurau.spectator.core.domain.Candle;
+import com.jonasdurau.spectator.core.domain.RegimeChangeEvent;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.html.Div;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -176,7 +180,7 @@ public class TradingViewChart extends Div {
         }
     }
 
-    public void setBacktestData(List<Candle> candles, List<com.jonasdurau.spectator.core.backtest.BacktestTrade> trades) {
+    public void setBacktestData(List<Candle> candles, List<BacktestTrade> trades, List<RegimeChangeEvent> regimeChanges) {
         if (candles == null || candles.isEmpty()) return;
 
         // Higieniza as velas
@@ -193,7 +197,7 @@ public class TradingViewChart extends Div {
                 .toList();
 
         // Mapeia os eventos para o formato do TradingView
-        List<Map<String, Object>> markers = (trades == null) ? List.of() : trades.stream().map(t -> {
+        List<Map<String, Object>> markers = (trades == null) ? new ArrayList<>() : trades.stream().map(t -> {
             Map<String, Object> m = new java.util.HashMap<>();
             m.put("time", t.time().getEpochSecond());
             
@@ -225,7 +229,20 @@ public class TradingViewChart extends Div {
                 m.put("text", label);
             }
             return m;
-        }).toList();
+        }).collect(Collectors.toCollection(ArrayList::new));
+
+        //Mapeia as mudanças de regime como "Bolinhas Azuis" acima do gráfico
+        if (regimeChanges != null) {
+            markers.addAll(regimeChanges.stream().map(r -> {
+                Map<String, Object> m = new java.util.HashMap<>();
+                m.put("time", r.time().getEpochSecond());
+                m.put("position", "aboveBar");
+                m.put("color", "#3b82f6"); // Azul vivo
+                m.put("shape", "circle");
+                m.put("text", "Regime: " + r.regime().name());
+                return m;
+            }).toList());
+        }
 
         try {
             String candlesJson = mapper.writeValueAsString(safeData);
@@ -286,6 +303,49 @@ public class TradingViewChart extends Div {
         } catch (JsonProcessingException e) {
             System.err.println("Erro ao serializar dados do backtest: " + e.getMessage());
         }
+    }
+
+    //MÉTODO PARA O DASHBOARD AO VIVO
+    public void addLiveMarker(Instant time, String text, String color, String position, String shape) {
+        Map<String, Object> marker = Map.of(
+            "time", time.getEpochSecond(),
+            "text", text,
+            "color", color,
+            "position", position,
+            "shape", shape
+        );
+        try {
+            String jsonStr = mapper.writeValueAsString(marker);
+            getElement().executeJs("""
+                const container = $0;
+                const newMarker = JSON.parse($1);
+                
+                if (container.candlestickSeries) {
+                    if (!container._rawMarkers) container._rawMarkers = [];
+                    container._rawMarkers.push(newMarker);
+                    container._rawMarkers.sort((a,b) => a.time - b.time);
+                    
+                    const uniqueMarkers = [];
+                    const markerMap = new Map();
+                    container._rawMarkers.forEach(raw => {
+                        const m = {...raw};
+                        if (markerMap.has(m.time)) {
+                            const existing = markerMap.get(m.time);
+                            if (!existing.text.includes(m.text)) existing.text = existing.text + " | " + m.text;
+                        } else {
+                            markerMap.set(m.time, m);
+                            uniqueMarkers.push(m);
+                        }
+                    });
+                    
+                    if (container.markersPlugin) {
+                        container.markersPlugin.setMarkers(uniqueMarkers);
+                    } else {
+                        container.markersPlugin = window.LightweightCharts.createSeriesMarkers(container.candlestickSeries, uniqueMarkers);
+                    }
+                }
+            """, getElement(), jsonStr);
+        } catch (JsonProcessingException e) {}
     }
 
     private Map<String, Object> candleToMap(Candle c) {

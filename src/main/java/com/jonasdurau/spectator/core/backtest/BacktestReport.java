@@ -2,6 +2,8 @@ package com.jonasdurau.spectator.core.backtest;
 
 import java.util.List;
 
+import com.jonasdurau.spectator.core.domain.RegimeChangeEvent;
+
 public record BacktestReport(
         String strategyName,
         String symbol,
@@ -13,7 +15,8 @@ public record BacktestReport(
         double maxDrawdown,
         double initialCapital,
         double finalCapital,
-        List<BacktestTrade> tradeLog
+        List<BacktestTrade> tradeLog,
+        List<RegimeChangeEvent> regimeChanges
 ) {
     @Override
     public String toString() {

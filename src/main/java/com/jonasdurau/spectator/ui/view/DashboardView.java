@@ -32,6 +32,7 @@ public class DashboardView extends VerticalLayout {
     private final MarketDataBroadcaster broadcaster;
     private final CandleRepository candleRepository;
     private Consumer<MarketTick> broadcasterListener;
+    private MarketRegime currentRegime = null;
 
     // Componentes Visuais
     private final H2 priceLabel = new H2("Loading...");
@@ -157,6 +158,12 @@ public class DashboardView extends VerticalLayout {
                 regimeBadge.addClassNames(LumoUtility.Background.WARNING_10, LumoUtility.TextColor.WARNING);
             default -> regimeBadge.addClassNames(LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.BODY);
         }
+
+        // ---> O DISPARO AO VIVO NO GRÁFICO <---
+        if (this.currentRegime != null && this.currentRegime != regime) {
+            chart.addLiveMarker(candle.getTime(), "Regime: " + regime.name(), "#3b82f6", "aboveBar", "circle");
+        }
+        this.currentRegime = regime;
 
         // Setup Floating PnL & Position states
         if (positions != null && !positions.isEmpty()) {

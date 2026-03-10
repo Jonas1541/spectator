@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -46,7 +47,8 @@ public class BacktestEngineService {
         int winningTrades = 0;
         int losingTrades = 0;
         
-        java.util.List<BacktestTrade> tradeLog = new java.util.ArrayList<>(); 
+        List<BacktestTrade> tradeLog = new ArrayList<>();
+        List<com.jonasdurau.spectator.core.domain.RegimeChangeEvent> regimeChanges = new ArrayList<>();
 
         boolean inPosition = false;
         TradeSide currentSide = null;
@@ -54,6 +56,7 @@ public class BacktestEngineService {
         double positionQuantity = 0.0;
         double stopLoss = 0.0;
         double takeProfit = 0.0;
+        MarketRegime lastRegime = null;
 
         for (int i = WARMUP_PERIOD; i < history1h.size(); i++) {
             Candle currentCandle = history1h.get(i);
@@ -109,6 +112,12 @@ public class BacktestEngineService {
             if (window4h.size() > 250) window4h = window4h.subList(window4h.size() - 250, window4h.size());
             if (window4h.size() > 50) regime = regimeAnalyzerService.analyze(window4h);
 
+            //REGISTRANDO A TROCA DE REGIME <---
+            if (lastRegime != null && regime != lastRegime) {
+                regimeChanges.add(new com.jonasdurau.spectator.core.domain.RegimeChangeEvent(currentCandle.getTime(), regime));
+            }
+            lastRegime = regime;
+
             // 2. A MÁGICA DO MASTER ENGINE: Passamos por todas as estratégias
             TradeSignal signal = TradeSignal.ignore();
             for (TradingStrategy strategy : strategies) {
@@ -139,7 +148,7 @@ public class BacktestEngineService {
 
         return new BacktestReport(
                 executionName, symbol, totalTrades, winningTrades, losingTrades, 
-                winRate, netProfit, maxDrawdown, initialCapital, currentCapital, tradeLog 
+                winRate, netProfit, maxDrawdown, initialCapital, currentCapital, tradeLog, regimeChanges
         );
     }
 }

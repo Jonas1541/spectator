@@ -172,7 +172,7 @@ public class BacktestView extends VerticalLayout {
 
                 ui.access(() -> {
                     updateResultsBoard(report);
-                    chart.setBacktestData(chartData, report.tradeLog());
+                    chart.setBacktestData(chartData, report.tradeLog(), report.regimeChanges());
                     
                     runButton.setEnabled(true);
                     runButton.setText("Sync & Run Backtest");
