@@ -9,6 +9,8 @@ import com.jonasdurau.spectator.ui.components.TradingViewChart;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.DetachEvent;
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
@@ -61,9 +63,20 @@ public class DashboardView extends VerticalLayout {
     }
 
     private void createHeader() {
-        H1 title = new H1("Spectator Engine");
+        H1 title = new H1("Spectator | Live Dashboard");
         title.addClassNames(LumoUtility.FontSize.XXLARGE, LumoUtility.Margin.Bottom.NONE);
-        add(title);
+
+        Button backtestButton = new Button("🧪 Backtest Studio");
+        backtestButton.addThemeVariants(ButtonVariant.LUMO_CONTRAST);
+        backtestButton.addClickListener(e -> UI.getCurrent().navigate(BacktestView.class));
+
+        // Empacota o título e o botão em uma linha
+        HorizontalLayout headerLayout = new HorizontalLayout(title, backtestButton);
+        headerLayout.setWidthFull();
+        headerLayout.setAlignItems(Alignment.CENTER);
+        headerLayout.setJustifyContentMode(JustifyContentMode.BETWEEN); // Empurra o botão pro canto direito
+
+        add(headerLayout);
     }
 
     private void createMetricsBoard() {

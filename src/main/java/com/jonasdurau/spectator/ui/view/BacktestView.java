@@ -100,7 +100,17 @@ public class BacktestView extends VerticalLayout {
     private void createHeader() {
         H1 title = new H1("Backtest Studio");
         title.addClassNames(LumoUtility.FontSize.XXLARGE, LumoUtility.Margin.Bottom.NONE);
-        add(title);
+        
+        Button liveButton = new Button("⚡ Live Dashboard");
+        liveButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        liveButton.addClickListener(e -> UI.getCurrent().navigate(DashboardView.class)); // Volta pra tela principal
+
+        HorizontalLayout headerLayout = new HorizontalLayout(title, liveButton);
+        headerLayout.setWidthFull();
+        headerLayout.setAlignItems(Alignment.CENTER);
+        headerLayout.setJustifyContentMode(JustifyContentMode.BETWEEN);
+
+        add(headerLayout);
     }
 
     private void createControlPanel() {
