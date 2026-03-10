@@ -13,6 +13,8 @@ public record BacktestReport(
         double winRate,
         double netProfit,
         double maxDrawdown,
+        double expectancy,
+        double sharpeRatio,
         double initialCapital,
         double finalCapital,
         List<BacktestTrade> tradeLog,
@@ -34,8 +36,8 @@ public record BacktestReport(
             Win Rate:        %.2f%% (%d W / %d L)
             =========================================
             """,
-            strategyName, symbol, initialCapital, finalCapital,
-            netProfit, (netProfit / initialCapital) * 100, maxDrawdown,
-            totalTrades, winRate, winningTrades, losingTrades);
+            strategyName, symbol, initialCapital, finalCapital, netProfit,
+            (netProfit / initialCapital) * 100, maxDrawdown, expectancy,
+            sharpeRatio, totalTrades, winRate, winningTrades, losingTrades);
     }
 }

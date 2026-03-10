@@ -58,6 +58,10 @@ public class BacktestEngineService {
         double takeProfit = 0.0;
         MarketRegime lastRegime = null;
 
+        double grossProfit = 0.0;
+        double grossLoss = 0.0;
+        List<Double> tradeReturns = new java.util.ArrayList<>(); // Para o Sharpe Ratio
+
         for (int i = WARMUP_PERIOD; i < history1h.size(); i++) {
             Candle currentCandle = history1h.get(i);
 
@@ -90,7 +94,15 @@ public class BacktestEngineService {
                                  (entryPrice - exitPrice) * positionQuantity;
                                  
                     currentCapital += pnl;
-                    if (pnl > 0) winningTrades++; else losingTrades++;
+                    tradeReturns.add(pnl);
+
+                    if (pnl > 0) {
+                        winningTrades++;
+                        grossProfit += pnl;
+                    } else {
+                        losingTrades++;
+                        grossLoss += Math.abs(pnl);
+                    }
 
                     if (currentCapital > peakCapital) peakCapital = currentCapital;
                     else {
@@ -143,12 +155,36 @@ public class BacktestEngineService {
         }
 
         int totalTrades = winningTrades + losingTrades;
-        double winRate = totalTrades > 0 ? ((double) winningTrades / totalTrades) * 100 : 0.0;
+        double winRate = totalTrades > 0 ? ((double) winningTrades / totalTrades) : 0.0;
+        double lossRate = 1.0 - winRate;
         double netProfit = currentCapital - initialCapital;
+
+        // 1. Cálculo da Expectância Matemática
+        double avgWin = winningTrades > 0 ? (grossProfit / winningTrades) : 0.0;
+        double avgLoss = losingTrades > 0 ? (grossLoss / losingTrades) : 0.0;
+        double expectancy = (winRate * avgWin) - (lossRate * avgLoss);
+
+        // 2. Cálculo do Sharpe Ratio (Simplificado por Trade)
+        double sharpeRatio = 0.0;
+        if (totalTrades > 1) {
+            double meanReturn = tradeReturns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            
+            // Calcula o Desvio Padrão (Volatilidade dos retornos)
+            double variance = tradeReturns.stream()
+                .mapToDouble(r -> Math.pow(r - meanReturn, 2))
+                .sum() / (totalTrades - 1);
+            double stdDev = Math.sqrt(variance);
+            
+            if (stdDev > 0) {
+                // Sharpe = (Retorno Médio / Desvio Padrão) * Raiz quadrada do número de períodos
+                sharpeRatio = (meanReturn / stdDev) * Math.sqrt(totalTrades); 
+            }
+        }
 
         return new BacktestReport(
                 executionName, symbol, totalTrades, winningTrades, losingTrades, 
-                winRate, netProfit, maxDrawdown, initialCapital, currentCapital, tradeLog, regimeChanges
+                winRate * 100, netProfit, maxDrawdown, expectancy, sharpeRatio,
+                initialCapital, currentCapital, tradeLog, regimeChanges
         );
     }
 }

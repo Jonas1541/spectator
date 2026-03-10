@@ -54,6 +54,9 @@ public class BacktestView extends VerticalLayout {
     
     private final TradingViewChart chart = new TradingViewChart();
 
+    private final Span expectancyLabel = new Span("-");
+    private final Span sharpeLabel = new Span("-");
+
     public BacktestView(HistoricalSyncService syncService, 
                         BacktestEngineService backtestEngine, 
                         CandleRepository candleRepository, 
@@ -126,6 +129,8 @@ public class BacktestView extends VerticalLayout {
         board.add(createMetric("Net Profit", pnlLabel));
         board.add(createMetric("Total Trades", tradesLabel));
         board.add(createMetric("Max Drawdown", drawdownLabel));
+        board.add(createMetric("Expectancy", expectancyLabel));
+        board.add(createMetric("Sharpe Ratio", sharpeLabel));
 
         add(board);
     }
@@ -203,5 +208,19 @@ public class BacktestView extends VerticalLayout {
         
         drawdownLabel.setText(String.format("%.2f%%", report.maxDrawdown()));
         drawdownLabel.addClassName(LumoUtility.TextColor.ERROR);
+
+        // Formata a Expectância (Verde se for lucrativa, vermelho se quebrar a conta)
+        expectancyLabel.setText(String.format("$%.2f", report.expectancy()));
+        expectancyLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
+        expectancyLabel.addClassName(report.expectancy() > 0 ? LumoUtility.TextColor.SUCCESS : LumoUtility.TextColor.ERROR);
+
+        // Formata o Sharpe Ratio
+        sharpeLabel.setText(String.format("%.2f", report.sharpeRatio()));
+        sharpeLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
+        if (report.sharpeRatio() > 1.0) {
+            sharpeLabel.addClassName(LumoUtility.TextColor.SUCCESS);
+        } else if (report.sharpeRatio() < 0.0) {
+            sharpeLabel.addClassName(LumoUtility.TextColor.ERROR);
+        }
     }
 }
