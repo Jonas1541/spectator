@@ -24,12 +24,7 @@ public class BacktestEngineService {
     private final RegimeAnalyzerService regimeAnalyzerService;
     private final MonteCarloSimulatorService monteCarloSimulator;
 
-    // Precisamos de no mínimo 200 candles de "warmup" para as médias móveis existirem
     private static final int WARMUP_PERIOD = 200; 
-
-    // Parâmetros de Defesa Ativa
-    private static final double BREAKEVEN_ACTIVATION_PCT = 0.01; // 1% de lucro ativa a defesa
-    private static final double TRAILING_STOP_DISTANCE_PCT = 0.01; // Mantém 1% de distância do topo
 
     public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator) {
         this.candleRepository = candleRepository;
@@ -52,6 +47,7 @@ public class BacktestEngineService {
         double maxDrawdown = 0.0;
         int winningTrades = 0;
         int losingTrades = 0;
+        double initialStopLoss = 0.0;
         
         List<BacktestTrade> tradeLog = new ArrayList<>();
         List<com.jonasdurau.spectator.core.domain.RegimeChangeEvent> regimeChanges = new ArrayList<>();
@@ -66,7 +62,7 @@ public class BacktestEngineService {
 
         double grossProfit = 0.0;
         double grossLoss = 0.0;
-        List<Double> tradeReturns = new java.util.ArrayList<>(); // Para o Sharpe Ratio
+        List<Double> tradeReturns = new java.util.ArrayList<>(); 
 
         for (int i = WARMUP_PERIOD; i < history1h.size(); i++) {
             Candle currentCandle = history1h.get(i);
@@ -95,19 +91,25 @@ public class BacktestEngineService {
                 }
 
                 if (closed) {
-                    double pnl = (currentSide == TradeSide.LONG) ? 
+                    double grossPnl = (currentSide == TradeSide.LONG) ? 
                                  (exitPrice - entryPrice) * positionQuantity : 
                                  (entryPrice - exitPrice) * positionQuantity;
+                    
+                    double entryFee = (entryPrice * positionQuantity) * 0.001;
+                    double exitFee = (exitPrice * positionQuantity) * 0.001;
+                    double totalFee = entryFee + exitFee;
+                    
+                    double netPnl = grossPnl - totalFee;
                                  
-                    currentCapital += pnl;
-                    tradeReturns.add(pnl);
+                    currentCapital += netPnl;
+                    tradeReturns.add(netPnl);
 
-                    if (pnl > 0) {
+                    if (netPnl > 0) {
                         winningTrades++;
-                        grossProfit += pnl;
+                        grossProfit += netPnl;
                     } else {
                         losingTrades++;
-                        grossLoss += Math.abs(pnl);
+                        grossLoss += Math.abs(netPnl);
                     }
 
                     if (currentCapital > peakCapital) peakCapital = currentCapital;
@@ -116,29 +118,23 @@ public class BacktestEngineService {
                         if (drawdown > maxDrawdown) maxDrawdown = drawdown;
                     }
 
-                    tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, exitPrice, pnl));
+                    tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, exitPrice, netPnl));
                     inPosition = false;
                 } else {
-                    // ---> GESTÃO DE TRADE (Breakeven & Trailing Stop) <---
-                    // Se o trade não fechou, avaliamos se o preço andou a nosso favor para puxar o Stop
+                    // ---> GESTÃO DE TRADE: 2R Breakeven "Set & Forget" <---
+                    double riskDistance = Math.abs(entryPrice - initialStopLoss);
+                    
                     if (currentSide == TradeSide.LONG) {
-                        double profitPct = (currentCandle.getHigh() - entryPrice) / entryPrice;
-                        if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
-                            if (stopLoss < entryPrice) stopLoss = entryPrice; // Garante o Zero a Zero
-                            
-                            double trailingLevel = currentCandle.getHigh() * (1.0 - TRAILING_STOP_DISTANCE_PCT);
-                            if (trailingLevel > stopLoss) stopLoss = trailingLevel; // Sobe o Stop acompanhando o preço
+                        // Se o preço subiu 2x a distância do nosso risco inicial
+                        if (currentCandle.getHigh() >= (entryPrice + (riskDistance * 2.0))) {
+                            if (stopLoss < entryPrice) stopLoss = entryPrice; // Move pro zero-a-zero
                         }
                     } else { // SHORT
-                        double profitPct = (entryPrice - currentCandle.getLow()) / entryPrice;
-                        if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
-                            if (stopLoss > entryPrice) stopLoss = entryPrice; // Garante o Zero a Zero
-                            
-                            double trailingLevel = currentCandle.getLow() * (1.0 + TRAILING_STOP_DISTANCE_PCT);
-                            if (trailingLevel < stopLoss) stopLoss = trailingLevel; // Desce o Stop acompanhando o preço
+                        // Se o preço caiu 2x a distância do nosso risco inicial
+                        if (currentCandle.getLow() <= (entryPrice - (riskDistance * 2.0))) {
+                            if (stopLoss > entryPrice) stopLoss = entryPrice; // Move pro zero-a-zero
                         }
                     }
-                    // -------------------------------------------------------------
                 }
                 continue;
             }
@@ -151,18 +147,16 @@ public class BacktestEngineService {
             if (window4h.size() > 250) window4h = window4h.subList(window4h.size() - 250, window4h.size());
             if (window4h.size() > 50) regime = regimeAnalyzerService.analyze(window4h);
 
-            //REGISTRANDO A TROCA DE REGIME <---
             if (lastRegime != null && regime != lastRegime) {
                 regimeChanges.add(new com.jonasdurau.spectator.core.domain.RegimeChangeEvent(currentCandle.getTime(), regime));
             }
             lastRegime = regime;
 
-            // 2. A MÁGICA DO MASTER ENGINE: Passamos por todas as estratégias
             TradeSignal signal = TradeSignal.ignore();
             for (TradingStrategy strategy : strategies) {
                 signal = strategy.evaluate(window1h, regime, currentCandle.getClose());
                 if (signal.fire()) {
-                    break; // A primeira estratégia que disparar assume o trade (Anti-martingale)
+                    break; 
                 }
             }
 
@@ -172,7 +166,10 @@ public class BacktestEngineService {
                 entryPrice = currentCandle.getClose();
                 stopLoss = signal.stopLoss();
                 takeProfit = signal.takeProfit();
+                stopLoss = signal.stopLoss();
+                initialStopLoss = stopLoss; // Guarda o risco original para calcular o 1R depois
                 
+                // Risco Profissional Limitado a 0.25%
                 double riskAmount = currentCapital * 0.0025;
                 double stopDistance = Math.abs(entryPrice - stopLoss);
                 positionQuantity = riskAmount / stopDistance;
@@ -186,29 +183,23 @@ public class BacktestEngineService {
         double lossRate = 1.0 - winRate;
         double netProfit = currentCapital - initialCapital;
 
-        // 1. Cálculo da Expectância Matemática
         double avgWin = winningTrades > 0 ? (grossProfit / winningTrades) : 0.0;
         double avgLoss = losingTrades > 0 ? (grossLoss / losingTrades) : 0.0;
         double expectancy = (winRate * avgWin) - (lossRate * avgLoss);
 
-        // 2. Cálculo do Sharpe Ratio (Simplificado por Trade)
         double sharpeRatio = 0.0;
         if (totalTrades > 1) {
             double meanReturn = tradeReturns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-            
-            // Calcula o Desvio Padrão (Volatilidade dos retornos)
             double variance = tradeReturns.stream()
                 .mapToDouble(r -> Math.pow(r - meanReturn, 2))
                 .sum() / (totalTrades - 1);
             double stdDev = Math.sqrt(variance);
             
             if (stdDev > 0) {
-                // Sharpe = (Retorno Médio / Desvio Padrão) * Raiz quadrada do número de períodos
                 sharpeRatio = (meanReturn / stdDev) * Math.sqrt(totalTrades); 
             }
         }
 
-        // Roda as 2000 simulações de Monte Carlo
         MonteCarloReport mcReport = monteCarloSimulator.runSimulation(tradeLog, initialCapital);
 
         return new BacktestReport(

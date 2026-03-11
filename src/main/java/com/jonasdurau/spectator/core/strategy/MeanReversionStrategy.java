@@ -14,6 +14,7 @@ import org.ta4j.core.indicators.ATRIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.helpers.VolumeIndicator;
 import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 
 import java.util.List;
@@ -31,7 +32,7 @@ public class MeanReversionStrategy implements TradingStrategy {
     
     // ATR para calcular um Stop Loss fixo de segurança
     private static final int ATR_PERIOD = 14;
-    private static final double ATR_SL_MULTIPLIER = 1.5;
+    private static final double ATR_SL_MULTIPLIER = 3.0;
 
     private final RiskManagerService riskManagerService;
 
@@ -76,11 +77,20 @@ public class MeanReversionStrategy implements TradingStrategy {
         ATRIndicator atr = new ATRIndicator(series, ATR_PERIOD);
         double currentAtr = atr.getValue(endIndex).doubleValue();
         
+        // 4. Filtro de Volume Institucional
+        VolumeIndicator volume = new VolumeIndicator(series);
+        SMAIndicator volumeSma = new SMAIndicator(volume, 20); // Média de volume das últimas 20 horas
+        
         double cPrice = closePrice.getValue(endIndex).doubleValue();
+        double currentVolume = volume.getValue(endIndex).doubleValue();
+        double avgVolume = volumeSma.getValue(endIndex).doubleValue();
 
-        // Regra de Compra: RSI Oversold (< 30) AND Preço tocando/abaixo da BB Lower
-        if (currentRsi < RSI_OVERSOLD && cPrice <= currentBbLower) {
-            log.info("[{}] Trigger detected! RSI ({}) < 30 and Price ({}) <= BB Lower ({}).", 
+        // Regra de Ouro: Só operamos se o volume atual for maior que a média!
+        boolean strongVolume = currentVolume > avgVolume;
+
+        // Regra de Compra: RSI Oversold (< 30) AND Preço tocando/abaixo da BB Lower AND Volume Forte
+        if (currentRsi < RSI_OVERSOLD && cPrice <= currentBbLower && strongVolume) {
+            log.info("[{}] Trigger detected! RSI ({}) < 30, Price ({}) <= BB Lower ({}) AND Strong Volume.", 
                      getName(), currentRsi, cPrice, currentBbLower);
             
             // O alvo em Mean Reversion é o retorno à média (BB Middle)
@@ -89,9 +99,14 @@ public class MeanReversionStrategy implements TradingStrategy {
             // Stop Loss colocado abaixo da entrada baseado na volatilidade (ATR)
             double stopLoss = cPrice - (currentAtr * ATR_SL_MULTIPLIER);
             
-            // Rejeitamos trades de Mean Reversion muito assimétricos negativamente
-            if (target <= stopLoss) {
-                log.warn("[{}] Discarding - Reward is smaller than Risk.", getName());
+            // ---> A CORREÇÃO DA MATEMÁTICA DE RISCO <---
+            double riskDistance = cPrice - stopLoss;
+            double rewardDistance = target - cPrice;
+            
+            // Exigimos que o lucro potencial seja pelo menos 1.5x o tamanho do risco
+            if (rewardDistance < (riskDistance * 1.5)) {
+                log.warn("[{}] Discarding - Reward (${}) is less than 1.5x the Risk (${}).", 
+                         getName(), rewardDistance, riskDistance);
                 return TradeSignal.ignore();
             }
 

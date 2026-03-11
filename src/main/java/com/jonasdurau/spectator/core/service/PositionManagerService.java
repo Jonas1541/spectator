@@ -19,9 +19,6 @@ public class PositionManagerService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionManagerService.class);
 
-    private static final double BREAKEVEN_ACTIVATION_PCT = 0.01;
-    private static final double TRAILING_STOP_DISTANCE_PCT = 0.01;
-
     private final PositionRepository positionRepository;
     private final TradeRepository tradeRepository;
 
@@ -68,35 +65,33 @@ public class PositionManagerService {
         for (Position position : openPositions) {
             double pnl = position.calculateFloatingPnl(currentPrice);
 
-            // ---> GESTÃO ATIVA DO TRADE (Trailing Stop & Breakeven) <---
+            // ---> NOVO: GESTÃO DE TRADE: 2R Breakeven "Set & Forget" <---
             boolean stopMoved = false;
-            if (position.getSide() == TradeSide.LONG) {
-                double profitPct = (currentPrice - position.getEntryPrice()) / position.getEntryPrice();
-                if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
-                    double newStop = Math.max(position.getStopLoss(), position.getEntryPrice()); // Garante o zero-a-zero
-                    double trailingLevel = currentPrice * (1.0 - TRAILING_STOP_DISTANCE_PCT);
-                    if (trailingLevel > newStop) newStop = trailingLevel; // Arrasta pra cima
-                    
-                    if (newStop > position.getStopLoss()) {
-                        position.setStopLoss(newStop);
+            Double currentStop = position.getStopLoss();
+            double entryPrice = position.getEntryPrice();
+
+            // Usamos uma margem de segurança (0.000001) em vez de '!=' por causa do double do Java.
+            // Só executa se o Stop Loss existir e ainda NÃO estiver no zero-a-zero.
+            if (currentStop != null && Math.abs(currentStop - entryPrice) > 0.000001) {
+                double riskDistance = Math.abs(entryPrice - currentStop);
+
+                if (position.getSide() == TradeSide.LONG) {
+                    // Se o preço subiu 2x a distância do risco inicial
+                    if (currentPrice >= (entryPrice + (riskDistance * 2.0))) {
+                        position.setStopLoss(entryPrice);
                         stopMoved = true;
-                        log.info("Trailing Stop for LONG {} moved up to {}", symbol, newStop);
+                        log.info("2R Breakeven hit for LONG on {}! Stop moved to entry: {}", symbol, entryPrice);
                     }
-                }
-            } else { // SHORT
-                double profitPct = (position.getEntryPrice() - currentPrice) / position.getEntryPrice();
-                if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
-                    double newStop = Math.min(position.getStopLoss(), position.getEntryPrice()); // Garante o zero-a-zero
-                    double trailingLevel = currentPrice * (1.0 + TRAILING_STOP_DISTANCE_PCT);
-                    if (trailingLevel < newStop) newStop = trailingLevel; // Arrasta pra baixo
-                    
-                    if (newStop < position.getStopLoss()) {
-                        position.setStopLoss(newStop);
+                } else { // SHORT
+                    // Se o preço caiu 2x a distância do risco inicial
+                    if (currentPrice <= (entryPrice - (riskDistance * 2.0))) {
+                        position.setStopLoss(entryPrice);
                         stopMoved = true;
-                        log.info("Trailing Stop for SHORT {} moved down to {}", symbol, newStop);
+                        log.info("2R Breakeven hit for SHORT on {}! Stop moved to entry: {}", symbol, entryPrice);
                     }
                 }
             }
+            
             if (stopMoved) {
                 positionRepository.save(position); // Salva o novo stop no banco
             }
