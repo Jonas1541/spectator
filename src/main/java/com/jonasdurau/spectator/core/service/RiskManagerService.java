@@ -13,7 +13,7 @@ public class RiskManagerService {
     private static final double MOCK_ACCOUNT_EQUITY = 10000.0;
     
     // As per the manual: Risk per trade is 0.5% to 1.0%. Let's default to 1.0%
-    private static final double DEFAULT_RISK_PERCENTAGE = 0.01; 
+    private static final double DEFAULT_RISK_PERCENTAGE = 0.0025; 
 
     /**
      * Calculates the position size based on the Stop Loss distance.

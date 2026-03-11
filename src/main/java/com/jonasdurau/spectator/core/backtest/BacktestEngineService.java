@@ -27,6 +27,10 @@ public class BacktestEngineService {
     // Precisamos de no mínimo 200 candles de "warmup" para as médias móveis existirem
     private static final int WARMUP_PERIOD = 200; 
 
+    // Parâmetros de Defesa Ativa
+    private static final double BREAKEVEN_ACTIVATION_PCT = 0.01; // 1% de lucro ativa a defesa
+    private static final double TRAILING_STOP_DISTANCE_PCT = 0.01; // Mantém 1% de distância do topo
+
     public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator) {
         this.candleRepository = candleRepository;
         this.regimeAnalyzerService = regimeAnalyzerService;
@@ -114,8 +118,29 @@ public class BacktestEngineService {
 
                     tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, exitPrice, pnl));
                     inPosition = false;
+                } else {
+                    // ---> GESTÃO DE TRADE (Breakeven & Trailing Stop) <---
+                    // Se o trade não fechou, avaliamos se o preço andou a nosso favor para puxar o Stop
+                    if (currentSide == TradeSide.LONG) {
+                        double profitPct = (currentCandle.getHigh() - entryPrice) / entryPrice;
+                        if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
+                            if (stopLoss < entryPrice) stopLoss = entryPrice; // Garante o Zero a Zero
+                            
+                            double trailingLevel = currentCandle.getHigh() * (1.0 - TRAILING_STOP_DISTANCE_PCT);
+                            if (trailingLevel > stopLoss) stopLoss = trailingLevel; // Sobe o Stop acompanhando o preço
+                        }
+                    } else { // SHORT
+                        double profitPct = (entryPrice - currentCandle.getLow()) / entryPrice;
+                        if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
+                            if (stopLoss > entryPrice) stopLoss = entryPrice; // Garante o Zero a Zero
+                            
+                            double trailingLevel = currentCandle.getLow() * (1.0 + TRAILING_STOP_DISTANCE_PCT);
+                            if (trailingLevel < stopLoss) stopLoss = trailingLevel; // Desce o Stop acompanhando o preço
+                        }
+                    }
+                    // -------------------------------------------------------------
                 }
-                continue; 
+                continue;
             }
 
             // --- AVALIAÇÃO DE ENTRADA ---
@@ -148,7 +173,7 @@ public class BacktestEngineService {
                 stopLoss = signal.stopLoss();
                 takeProfit = signal.takeProfit();
                 
-                double riskAmount = currentCapital * 0.01;
+                double riskAmount = currentCapital * 0.0025;
                 double stopDistance = Math.abs(entryPrice - stopLoss);
                 positionQuantity = riskAmount / stopDistance;
 

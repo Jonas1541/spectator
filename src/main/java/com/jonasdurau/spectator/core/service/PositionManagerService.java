@@ -19,6 +19,9 @@ public class PositionManagerService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionManagerService.class);
 
+    private static final double BREAKEVEN_ACTIVATION_PCT = 0.01;
+    private static final double TRAILING_STOP_DISTANCE_PCT = 0.01;
+
     private final PositionRepository positionRepository;
     private final TradeRepository tradeRepository;
 
@@ -64,6 +67,40 @@ public class PositionManagerService {
 
         for (Position position : openPositions) {
             double pnl = position.calculateFloatingPnl(currentPrice);
+
+            // ---> GESTÃO ATIVA DO TRADE (Trailing Stop & Breakeven) <---
+            boolean stopMoved = false;
+            if (position.getSide() == TradeSide.LONG) {
+                double profitPct = (currentPrice - position.getEntryPrice()) / position.getEntryPrice();
+                if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
+                    double newStop = Math.max(position.getStopLoss(), position.getEntryPrice()); // Garante o zero-a-zero
+                    double trailingLevel = currentPrice * (1.0 - TRAILING_STOP_DISTANCE_PCT);
+                    if (trailingLevel > newStop) newStop = trailingLevel; // Arrasta pra cima
+                    
+                    if (newStop > position.getStopLoss()) {
+                        position.setStopLoss(newStop);
+                        stopMoved = true;
+                        log.info("Trailing Stop for LONG {} moved up to {}", symbol, newStop);
+                    }
+                }
+            } else { // SHORT
+                double profitPct = (position.getEntryPrice() - currentPrice) / position.getEntryPrice();
+                if (profitPct >= BREAKEVEN_ACTIVATION_PCT) {
+                    double newStop = Math.min(position.getStopLoss(), position.getEntryPrice()); // Garante o zero-a-zero
+                    double trailingLevel = currentPrice * (1.0 + TRAILING_STOP_DISTANCE_PCT);
+                    if (trailingLevel < newStop) newStop = trailingLevel; // Arrasta pra baixo
+                    
+                    if (newStop < position.getStopLoss()) {
+                        position.setStopLoss(newStop);
+                        stopMoved = true;
+                        log.info("Trailing Stop for SHORT {} moved down to {}", symbol, newStop);
+                    }
+                }
+            }
+            if (stopMoved) {
+                positionRepository.save(position); // Salva o novo stop no banco
+            }
+            // ---------------------------------------------------------------
 
             // Checking Stop Loss
             if (position.getStopLoss() != null) {
