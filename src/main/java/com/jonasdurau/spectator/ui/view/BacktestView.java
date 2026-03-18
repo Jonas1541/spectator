@@ -24,6 +24,7 @@ import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.textfield.NumberField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
@@ -51,6 +52,7 @@ public class BacktestView extends VerticalLayout {
     // UI Components
     private final DatePicker startDatePicker = new DatePicker("Start Date");
     private final DatePicker endDatePicker = new DatePicker("End Date");
+    private final NumberField capitalField = new NumberField("Starting Capital (USDT)");
     private final ComboBox<StrategyOption> strategySelector = new ComboBox<>("Strategy Mode");
     private final Button runButton = new Button("Sync & Run Backtest");
     private final Checkbox walkForwardToggle = new Checkbox("Walk-Forward Analysis (5 Slices)");
@@ -136,11 +138,14 @@ public class BacktestView extends VerticalLayout {
         if (!options.isEmpty()) {
             strategySelector.setValue(options.get(0));
         }
+        
+        capitalField.setValue(10000.0);
+        capitalField.setMin(10.0);
 
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(e -> executeBacktest());
 
-        controls.add(strategySelector, startDatePicker, endDatePicker, walkForwardToggle, runButton);
+        controls.add(strategySelector, startDatePicker, endDatePicker, capitalField, walkForwardToggle, runButton);
         add(controls);
     }
 
@@ -189,8 +194,8 @@ public class BacktestView extends VerticalLayout {
     }
 
     private void executeBacktest() {
-        if (startDatePicker.getValue() == null || endDatePicker.getValue() == null || strategySelector.getValue() == null) {
-            Notification.show("Please select all fields.", 3000, Notification.Position.TOP_CENTER);
+        if (startDatePicker.getValue() == null || endDatePicker.getValue() == null || strategySelector.getValue() == null || capitalField.getValue() == null) {
+            Notification.show("Please select all fields including Capital.", 3000, Notification.Position.TOP_CENTER);
             return;
         }
 
@@ -200,6 +205,7 @@ public class BacktestView extends VerticalLayout {
         java.time.Instant start = startDatePicker.getValue().atStartOfDay().toInstant(ZoneOffset.UTC);
         java.time.Instant end = endDatePicker.getValue().atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
         StrategyOption selectedOption = strategySelector.getValue();
+        double initialCapital = capitalField.getValue();
 
         UI ui = UI.getCurrent();
         Thread backgroundThread = new Thread(() -> {
@@ -212,12 +218,12 @@ public class BacktestView extends VerticalLayout {
                     
                     // 1. Roda o backtest COMPLETO para preencher o painel superior e o gráfico com tudo!
                     BacktestReport overallReport = backtestEngine.runBacktest(
-                            selectedOption.name() + " (Overall)", selectedOption.strategies(), "BTCUSDT", start, end, 10000.0
+                            selectedOption.name() + " (Overall)", selectedOption.strategies(), "BTCUSDT", start, end, initialCapital
                     );
 
                     // 2. Roda o fatiador para preencher a tabela de consistência
                     WalkForwardReport wfaReport = walkForwardAnalyzer.runAnalysis(
-                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, 10000.0, 5
+                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, initialCapital, 5
                     );
                     
                     // 3. Pega TODOS os candles do período total para o gráfico
@@ -243,7 +249,7 @@ public class BacktestView extends VerticalLayout {
                 } else {
                     // STANDARD MODE
                     BacktestReport report = backtestEngine.runBacktest(
-                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, 10000.0
+                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, initialCapital
                     );
                     List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
 
