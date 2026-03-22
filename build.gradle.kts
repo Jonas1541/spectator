@@ -43,6 +43,7 @@ dependencies {
 	implementation("org.mapstruct:mapstruct:1.6.3")
     annotationProcessor("org.mapstruct:mapstruct-processor:1.6.3")
 	implementation("org.ta4j:ta4j-core:0.22.2")
+	implementation("com.github.haifengl:smile-core:5.2.1")
 }
 
 dependencyManagement {

@@ -3,7 +3,6 @@ package com.jonasdurau.spectator.core.strategy;
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.domain.TradeSide;
-import com.jonasdurau.spectator.core.service.RiskManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -35,11 +34,7 @@ public class MeanReversionStrategy implements TradingStrategy {
     // 2. STOP MAIS CURTO (Se o elástico arrebentar, saímos rápido)
     private static final double ATR_SL_MULTIPLIER = 2.0; 
 
-    private final RiskManagerService riskManagerService;
-
-    public MeanReversionStrategy(RiskManagerService riskManagerService) {
-        this.riskManagerService = riskManagerService;
-    }
+    public MeanReversionStrategy() {}
 
     @Override
     public String getName() {
@@ -103,8 +98,7 @@ public class MeanReversionStrategy implements TradingStrategy {
                 return TradeSignal.ignore();
             }
 
-            double quantity = riskManagerService.calculatePositionSize(cPrice, stopLoss);
-            return TradeSignal.enter(TradeSide.LONG, quantity, stopLoss, target, null, null);
+            return TradeSignal.enter(TradeSide.LONG, stopLoss, target, null, null, 0.60);
         }
 
         return TradeSignal.ignore();

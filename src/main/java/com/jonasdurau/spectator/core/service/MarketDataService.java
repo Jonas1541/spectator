@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.List;
+import java.time.Instant;
 
 @Service
 public class MarketDataService {
@@ -82,10 +83,10 @@ public class MarketDataService {
         }
     }
 
-    private void fillGap(String timeframe, java.time.Instant lastCandleTime) {
+    private void fillGap(String timeframe, Instant lastCandleTime) {
         log.info("Checking for missing candles since {}...", lastCandleTime);
-        java.time.Instant currentTime = lastCandleTime;
-        java.time.Instant now = java.time.Instant.now();
+        Instant currentTime = lastCandleTime;
+        Instant now = Instant.now();
         int totalFetched = 0;
 
         // Loop para paginar gaps que sejam maiores que 1000 candles
@@ -100,7 +101,7 @@ public class MarketDataService {
             batch.forEach(candleRepository::upsert);
             totalFetched += batch.size();
 
-            java.time.Instant lastFetchedTime = batch.get(batch.size() - 1).getTime();
+            Instant lastFetchedTime = batch.get(batch.size() - 1).getTime();
 
             // Se a API retornou apenas o próprio candle de início (sem velas novas), saímos
             // do loop

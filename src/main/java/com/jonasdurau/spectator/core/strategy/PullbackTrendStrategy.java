@@ -3,7 +3,6 @@ package com.jonasdurau.spectator.core.strategy;
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.domain.TradeSide;
-import com.jonasdurau.spectator.core.service.RiskManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -28,11 +27,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
     // Distância máxima permitida até a EMA 50 para considerar o "toque" (1%)
     private static final double MAX_PULLBACK_DISTANCE_PCT = 0.01; 
 
-    private final RiskManagerService riskManagerService;
-
-    public PullbackTrendStrategy(RiskManagerService riskManagerService) {
-        this.riskManagerService = riskManagerService;
-    }
+    public PullbackTrendStrategy() {}
 
     @Override
     public String getName() {
@@ -97,8 +92,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 double stopLoss = cPrice - (currentAtr * 3.0);
                 double target = cPrice + ((cPrice - stopLoss) * 5.0);
 
-                double quantity = riskManagerService.calculatePositionSize(cPrice, stopLoss);
-                return TradeSignal.enter(TradeSide.LONG, quantity, stopLoss, target, 2.0, null);
+                return TradeSignal.enter(TradeSide.LONG, stopLoss, target, 2.0, null, 0.30);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             boolean bearishCandle = cPrice < oPrice;
@@ -110,8 +104,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 double stopLoss = cPrice + (currentAtr * 1.5);
                 double target = cPrice - ((stopLoss - cPrice) * 5.0);
                 
-                double quantity = riskManagerService.calculatePositionSize(cPrice, stopLoss);
-                return TradeSignal.enter(TradeSide.SHORT, quantity, stopLoss, target, 2.0, null);
+                return TradeSignal.enter(TradeSide.SHORT, stopLoss, target, 2.0, null, 0.30);
             }
         }
 

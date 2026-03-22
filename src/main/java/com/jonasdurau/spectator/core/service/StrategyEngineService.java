@@ -20,13 +20,16 @@ public class StrategyEngineService {
 
     private final OrderExecutionService orderExecutionService;
     private final PositionRepository positionRepository;
+    private final RiskManagerService riskManagerService;
     private final List<TradingStrategy> strategies;
 
     public StrategyEngineService(OrderExecutionService orderExecutionService, 
                                  PositionRepository positionRepository,
+                                 RiskManagerService riskManagerService,
                                  List<TradingStrategy> strategies) {
         this.orderExecutionService = orderExecutionService;
         this.positionRepository = positionRepository;
+        this.riskManagerService = riskManagerService;
         this.strategies = strategies;
     }
 
@@ -42,11 +45,33 @@ public class StrategyEngineService {
             TradeSignal signal = strategy.evaluate(recent1hCandles, regime, currentPrice);
             
             if (signal.fire()) {
-                log.info("Strategy [{}] fired {} signal! Executing...", strategy.getName(), signal.side());
+                // Exposure metrics
+                double MOCK_ACCOUNT_EQUITY = 10000.0;
+                double currentExposure = 0.0;
+                for (Position p : openPositions) {
+                    currentExposure += (p.getQuantity() * p.getEntryPrice());
+                }
+                double currentExposurePct = currentExposure / MOCK_ACCOUNT_EQUITY;
+
+                double quantity = riskManagerService.calculateKellyPositionSize(
+                        currentPrice, 
+                        signal.stopLoss(), 
+                        signal.takeProfit(), 
+                        signal.winProbability(), 
+                        MOCK_ACCOUNT_EQUITY, 
+                        currentExposurePct
+                );
+
+                if (quantity <= 0.0) {
+                    log.info("Strategy [{}] fired but RiskManager rejected the trade (Size 0).", strategy.getName());
+                    return;
+                }
+
+                log.info("Strategy [{}] fired {}! Executing size: {}", strategy.getName(), signal.side(), quantity);
                 orderExecutionService.executeMarketOrder(
                         symbol, 
                         signal.side(), 
-                        signal.quantity(), 
+                        quantity, 
                         currentPrice, 
                         signal.stopLoss(), 
                         signal.takeProfit(),

@@ -10,6 +10,7 @@ import com.jonasdurau.spectator.core.strategy.TradingStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import com.jonasdurau.spectator.core.service.RiskManagerService;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,13 +24,15 @@ public class BacktestEngineService {
     private final CandleRepository candleRepository;
     private final RegimeAnalyzerService regimeAnalyzerService;
     private final MonteCarloSimulatorService monteCarloSimulator;
+    private final RiskManagerService riskManagerService;
 
     private static final int WARMUP_PERIOD = 200; 
 
-    public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator) {
+    public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator, RiskManagerService riskManagerService) {
         this.candleRepository = candleRepository;
         this.regimeAnalyzerService = regimeAnalyzerService;
         this.monteCarloSimulator = monteCarloSimulator;
+        this.riskManagerService = riskManagerService;
     }
 
     public BacktestReport runBacktest(String executionName, List<TradingStrategy> strategies, String symbol, Instant start, Instant end, double initialCapital) {
@@ -188,10 +191,21 @@ public class BacktestEngineService {
                 currentBreakevenMultiplier = signal.breakevenMultiplier();
                 currentTrailingMultiplier = signal.trailingMultiplier();
                 
-                // Risco Profissional Limitado a 0.25%
-                double riskAmount = currentCapital * 0.0025;
-                double stopDistance = Math.abs(entryPrice - stopLoss);
-                positionQuantity = riskAmount / stopDistance;
+                // Fractional Kelly & Max Exposure Sizing
+                double currentExposurePct = 0.0; // Backtest allows 1 active trade at a time currently
+                positionQuantity = riskManagerService.calculateKellyPositionSize(
+                        entryPrice,
+                        stopLoss,
+                        takeProfit,
+                        signal.winProbability(),
+                        currentCapital,
+                        currentExposurePct
+                );
+                
+                if (positionQuantity <= 0.0) {
+                     inPosition = false; // Reject trade
+                     continue; 
+                }
 
                 tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, true, entryPrice, 0.0));
             }

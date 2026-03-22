@@ -5,13 +5,8 @@ import com.jonasdurau.spectator.core.domain.MarketRegime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.ta4j.core.BarSeries;
-import org.ta4j.core.indicators.averages.EMAIndicator;
-import org.ta4j.core.indicators.adx.ADXIndicator;
-import org.ta4j.core.indicators.ATRIndicator;
-import org.ta4j.core.indicators.averages.SMAIndicator;
-import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 
+import smile.sequence.HMM;
 import java.util.List;
 
 @Service
@@ -19,69 +14,77 @@ public class RegimeAnalyzerService {
 
     private static final Logger log = LoggerFactory.getLogger(RegimeAnalyzerService.class);
 
-    // Parâmetros clássicos de Análise Técnica
-    private static final int EMA_200_PERIOD = 200;
-    private static final int EMA_50_PERIOD = 50;
-    private static final int ADX_PERIOD = 14;
-    private static final int ATR_PERIOD = 14;
-    
-    // Limiares (Thresholds) da sua estratégia
-    private static final double ADX_TREND_THRESHOLD = 20.0;
-    private static final double ATR_VOLATILITY_MULTIPLIER = 1.5;
+    private static final int HMM_WINDOW_CANDLES = 250;
 
     /**
-     * Analisa o mercado baseado nos candles recentes e retorna o estado atual.
-     * @param recentCandles Lista ordenada do mais antigo para o mais novo.
+     * Estimates the latent market regime by fitting a Gaussian HMM on Log-Returns.
      */
     public MarketRegime analyze(List<Candle> recentCandles) {
-        if (recentCandles.size() <= EMA_200_PERIOD) {
-            log.warn("Not enough candles to calculate EMA {}. Need at least {}, got {}", EMA_200_PERIOD, EMA_200_PERIOD + 1, recentCandles.size());
-            return MarketRegime.SIDEWAYS; // Estado de segurança padrão
+        if (recentCandles.size() < HMM_WINDOW_CANDLES) {
+            return MarketRegime.SIDEWAYS; 
         }
 
-        // 1. Converter para o formato ta4j
-        BarSeries series = Ta4jMapper.toBarSeries(recentCandles, "Bitcoin_4H");
-        int endIndex = series.getEndIndex();
-
-        // 2. Preparar os Indicadores
-        ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
-        EMAIndicator ema200 = new EMAIndicator(closePrice, EMA_200_PERIOD);
-        EMAIndicator ema50 = new EMAIndicator(closePrice, EMA_50_PERIOD);
-        ADXIndicator adx = new ADXIndicator(series, ADX_PERIOD);
+        // 1. Extract the rolling window
+        List<Candle> window = recentCandles.subList(recentCandles.size() - HMM_WINDOW_CANDLES, recentCandles.size());
         
-        // Para volatilidade, comparamos o ATR atual com a média do ATR (SMA do ATR)
-        ATRIndicator atr = new ATRIndicator(series, ATR_PERIOD);
-        SMAIndicator averageAtr = new SMAIndicator(atr, ATR_PERIOD * 2);
-
-        // 3. Extrair os valores do momento atual (último candle)
-        double currentPrice = closePrice.getValue(endIndex).doubleValue();
-        double currentEma200 = ema200.getValue(endIndex).doubleValue();
-        double currentEma50 = ema50.getValue(endIndex).doubleValue();
-        double currentAdx = adx.getValue(endIndex).doubleValue();
+        // 2. Compute Discretized Observations (Log Returns as 5 Bins)
+        // Bin 0: Strong Down (< -1%)
+        // Bin 1: Weak Down (< -0.1%)
+        // Bin 2: Flat
+        // Bin 3: Weak Up (> +0.1%)
+        // Bin 4: Strong Up (> +1%)
+        int[] intObservations = new int[window.size() - 1];
+        double[] observations = new double[window.size() - 1];
         
-        double currentAtr = atr.getValue(endIndex).doubleValue();
-        double baselineAtr = averageAtr.getValue(endIndex).doubleValue();
-
-        // 4. Aplicar as Regras de Negócio (Decisão)
-        
-        // Regra 1: O mercado está explodindo de volatilidade? (ATR muito acima da média histórica)
-        if (currentAtr > (baselineAtr * ATR_VOLATILITY_MULTIPLIER)) {
-            return MarketRegime.VOLATILE;
+        for (int i = 1; i < window.size(); i++) {
+            double c = window.get(i).getClose();
+            double prevC = window.get(i - 1).getClose();
+            double r = Math.log(c / prevC);
+            observations[i - 1] = r;
+            
+            if (r <= -0.01) intObservations[i - 1] = 0;
+            else if (r < -0.001) intObservations[i - 1] = 1;
+            else if (r <= 0.001) intObservations[i - 1] = 2;
+            else if (r < 0.01) intObservations[i - 1] = 3;
+            else intObservations[i - 1] = 4;
         }
 
-        // Regra 2: O mercado está sem força/lateralizado?
-        if (currentAdx < ADX_TREND_THRESHOLD) {
+        // 3. Supervised HMM Training (Smile 5.2.1 requires sequence and label matrices)
+        int[] labels = new int[intObservations.length];
+        for(int i = 0; i < labels.length; i++) {
+            // Seed labels via a basic Momentum heuristic 
+            double r = observations[i];
+            if (r > 0.005) labels[i] = 1;      // Trend Up
+            else if (r < -0.005) labels[i] = 2; // Trend Down
+            else labels[i] = 0;                // Sideways
+        }
+
+        HMM hmm = null;
+        try {
+            int[][] seqMatrix = { intObservations };
+            int[][] labMatrix = { labels };
+            hmm = HMM.fit(seqMatrix, labMatrix);
+        } catch (Exception e) {
+            log.error("HMM Fit error. Fallback to SIDEWAYS", e);
             return MarketRegime.SIDEWAYS;
         }
 
-        // Regra 3: Se tem força (ADX >= 20), para onde é a tendência?
-        if (currentPrice > currentEma200 && currentEma50 > currentEma200) {
-            return MarketRegime.TRENDING_UP;
-        } else if (currentPrice < currentEma200 && currentEma50 < currentEma200) {
-            return MarketRegime.TRENDING_DOWN;
-        } else {
-            // Se está convergindo (transição), melhor não classificar como tendência clara
-            return MarketRegime.SIDEWAYS;
+        // 4. Viterbi Decoding of the highest probability Latent State
+        int currentStateIdx = 0;
+        if (hmm != null) {
+            int[] viterbiPath = hmm.predict(intObservations);
+            currentStateIdx = viterbiPath[viterbiPath.length - 1];
+        }
+
+        // 5. Map the mathematical State to our Domain Regime
+        switch(currentStateIdx) {
+            case 1:
+                return MarketRegime.TRENDING_UP;
+            case 2:
+                return MarketRegime.TRENDING_DOWN;
+            case 0:
+            default:
+                return MarketRegime.SIDEWAYS;
         }
     }
 }

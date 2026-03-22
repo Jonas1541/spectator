@@ -8,37 +8,67 @@ import org.springframework.stereotype.Service;
 public class RiskManagerService {
 
     private static final Logger log = LoggerFactory.getLogger(RiskManagerService.class);
-
-    // Hardcoded for now until we have a proper Portfolio module
-    private static final double MOCK_ACCOUNT_EQUITY = 10000.0;
     
-    // As per the manual: Risk per trade is 0.5% to 1.0%. Let's default to 1.0%
-    private static final double DEFAULT_RISK_PERCENTAGE = 0.0025; 
+    private static final double KELLY_FRACTION_MULTIPLIER = 0.05; // 1/20th Kelly (to prevent massive leverage fee drag)
+    private static final double MAX_EXPOSURE_PERCENTAGE = 0.30; // 30% Max Global Exposure
+    private static final double MAX_SINGLE_TRADE_RISK = 0.01; // 1% absolute risk cap per trade
 
     /**
-     * Calculates the position size based on the Stop Loss distance.
-     * Position Size = (Account Equity * Risk Percentage) / (Entry Price - Stop Loss Price)
-     *
-     * @param currentPrice The entry price for the trade
-     * @param stopLossPrice The price at which the stop loss is triggered
-     * @return The calculated position size (quantity)
+     * Calculates the position size based on the Fractional Kelly Criterion.
+     * 
+     * f* = p - (q / b)
+     * Where p = win probability, q = loss probability, b = reward/risk ratio
      */
-    public double calculatePositionSize(double currentPrice, double stopLossPrice) {
-        return calculatePositionSize(currentPrice, stopLossPrice, MOCK_ACCOUNT_EQUITY, DEFAULT_RISK_PERCENTAGE);
-    }
-    
-    public double calculatePositionSize(double currentPrice, double stopLossPrice, double accountEquity, double riskPercentage) {
-        double maxLossFait = accountEquity * riskPercentage;
-        double stopDistance = Math.abs(currentPrice - stopLossPrice);
+    public double calculateKellyPositionSize(
+            double currentPrice, 
+            double stopLossPrice, 
+            double targetPrice, 
+            double winProbability, 
+            double accountEquity, 
+            double currentExposurePercentage) {
         
-        if (stopDistance <= 0) {
-            log.warn("Invalid stop distance. StopLoss {} is equal to or same as Entry {}. Defaulting to minimum.", stopLossPrice, currentPrice);
-            return 0.001; // Minimum fallback
+        // 1. Calculate Reward/Risk Ratio (b)
+        double riskDistance = Math.abs(currentPrice - stopLossPrice);
+        double rewardDistance = Math.abs(targetPrice - currentPrice);
+        
+        if (riskDistance <= 0 || rewardDistance <= 0) {
+            log.warn("Invalid risk or reward distance. SL: {}, TP: {}, Entry: {}", stopLossPrice, targetPrice, currentPrice);
+            return 0.0;
         }
-
-        double positionSize = maxLossFait / stopDistance;
-        log.info("Risk Manager: Equity=${}, Risk={}, SL Dist=${}. Computed Position Size={}", 
-                accountEquity, riskPercentage, stopDistance, positionSize);
+        
+        double rewardRisk = rewardDistance / riskDistance;
+        
+        // 2. Full Kelly Fraction (f*)
+        double loseProbability = 1.0 - winProbability;
+        double fullKelly = winProbability - (loseProbability / rewardRisk);
+        
+        if (fullKelly <= 0) {
+            log.warn("Negative Kelly Fraction ({}). Edge is not positive. Rejecting trade.", fullKelly);
+            return 0.0; 
+        }
+        
+        // 3. Fractional Kelly (Quarter-Kelly)
+        double fractionalKelly = fullKelly * KELLY_FRACTION_MULTIPLIER;
+        
+        // 4. Cap Single Trade Risk
+        double riskPercentage = Math.min(fractionalKelly, MAX_SINGLE_TRADE_RISK);
+        
+        // 5. Max Exposure Validator
+        if (currentExposurePercentage >= MAX_EXPOSURE_PERCENTAGE) {
+            log.warn("Global Max Exposure (30%) reached. Current: {}. Rejecting trade.", currentExposurePercentage);
+            return 0.0;
+        }
+        
+        // Allowable space before hitting the 30% ceiling
+        double allowableRisk = MAX_EXPOSURE_PERCENTAGE - currentExposurePercentage;
+        double finalRiskPercentage = Math.min(riskPercentage, allowableRisk);
+        
+        // 6. Calculate Position Size Quantity
+        double maxLossFiat = accountEquity * finalRiskPercentage;
+        double positionSize = maxLossFiat / riskDistance;
+        
+        log.info("Kelly Sizing: WinRate={}, R:R={}, KellyFraction={}, PctRisk={}, FiatRisk=${}, PosSize={}", 
+                winProbability, rewardRisk, fractionalKelly, finalRiskPercentage, maxLossFiat, positionSize);
                 
         return positionSize;
     }

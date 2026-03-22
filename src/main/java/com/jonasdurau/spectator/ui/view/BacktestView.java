@@ -29,6 +29,7 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -202,8 +203,8 @@ public class BacktestView extends VerticalLayout {
         runButton.setEnabled(false);
         runButton.setText("Downloading & Processing...");
         
-        java.time.Instant start = startDatePicker.getValue().atStartOfDay().toInstant(ZoneOffset.UTC);
-        java.time.Instant end = endDatePicker.getValue().atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
+        Instant start = startDatePicker.getValue().atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant end = endDatePicker.getValue().atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
         StrategyOption selectedOption = strategySelector.getValue();
         double initialCapital = capitalField.getValue();
 

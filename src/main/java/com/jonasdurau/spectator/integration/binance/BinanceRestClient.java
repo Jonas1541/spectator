@@ -53,7 +53,7 @@ public class BinanceRestClient {
     /**
      * Busca o histórico de candles a partir de uma data específica (Gap Fill).
      */
-    public List<Candle> fetchHistoricalCandles(String symbol, String interval, int limit, java.time.Instant startTime) {
+    public List<Candle> fetchHistoricalCandles(String symbol, String interval, int limit, Instant startTime) {
         log.info("Fetching gap: {} {} candles for {} starting from {}", limit, interval, symbol, startTime);
 
         List<List<Object>> response = restClient.get()
