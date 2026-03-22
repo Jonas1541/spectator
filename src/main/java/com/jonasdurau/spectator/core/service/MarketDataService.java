@@ -9,6 +9,7 @@ import com.jonasdurau.spectator.integration.binance.BinanceWebSocketClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jonasdurau.spectator.ui.broadcaster.MarketDataBroadcaster;
 import com.jonasdurau.spectator.ui.broadcaster.MarketTick;
+import com.jonasdurau.spectator.integration.binance.BinanceDepthWebSocketClient;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ public class MarketDataService {
     private final MarketDataBroadcaster broadcaster;
     private final PositionManagerService positionManagerService;
     private final StrategyEngineService strategyEngineService;
+    private final OrderBookService orderBookService;
 
     public MarketDataService(CandleRepository candleRepository,
             BinanceRestClient restClient,
@@ -41,7 +43,8 @@ public class MarketDataService {
             RegimeAnalyzerService regimeAnalyzerService,
             MarketDataBroadcaster broadcaster,
             PositionManagerService positionManagerService,
-            StrategyEngineService strategyEngineService) {
+            StrategyEngineService strategyEngineService,
+            OrderBookService orderBookService) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
         this.objectMapper = objectMapper;
@@ -49,6 +52,7 @@ public class MarketDataService {
         this.broadcaster = broadcaster;
         this.positionManagerService = positionManagerService;
         this.strategyEngineService = strategyEngineService;
+        this.orderBookService = orderBookService;
     }
 
     /**
@@ -66,6 +70,9 @@ public class MarketDataService {
         // 2. Conecta no WebSocket para atualizações em tempo real
         startRealtimeStream("1h");
         startRealtimeStream("4h");
+        
+        // 3. Conecta no WebSocket de Order Book (Depth 5 Níveis)
+        new BinanceDepthWebSocketClient(objectMapper, orderBookService).connect(TARGET_SYMBOL);
     }
 
     private void seedHistoricalData(String timeframe) {
