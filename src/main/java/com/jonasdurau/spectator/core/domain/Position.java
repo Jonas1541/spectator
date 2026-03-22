@@ -33,7 +33,10 @@ public class Position {
     private double entryPrice;
     private double quantity;
     private Double stopLoss;
+    private Double initialStopLoss;
     private Double takeProfit;
+    private Double breakevenMultiplier;
+    private Double trailingMultiplier;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -62,6 +65,7 @@ public class Position {
         this.entryPrice = entryPrice;
         this.quantity = quantity;
         this.stopLoss = stopLoss;
+        this.initialStopLoss = stopLoss;
         this.takeProfit = takeProfit;
         this.status = PositionStatus.OPEN;
         this.createdAt = Instant.now();
@@ -141,6 +145,10 @@ public class Position {
         return stopLoss;
     }
 
+    public Double getInitialStopLoss() {
+        return initialStopLoss;
+    }
+
     public void setStopLoss(Double stopLoss) {
         this.stopLoss = stopLoss;
     }
@@ -151,6 +159,22 @@ public class Position {
 
     public void setTakeProfit(Double takeProfit) {
         this.takeProfit = takeProfit;
+    }
+
+    public Double getBreakevenMultiplier() {
+        return breakevenMultiplier;
+    }
+
+    public void setBreakevenMultiplier(Double breakevenMultiplier) {
+        this.breakevenMultiplier = breakevenMultiplier;
+    }
+
+    public Double getTrailingMultiplier() {
+        return trailingMultiplier;
+    }
+
+    public void setTrailingMultiplier(Double trailingMultiplier) {
+        this.trailingMultiplier = trailingMultiplier;
     }
 
     public PositionStatus getStatus() {

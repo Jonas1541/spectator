@@ -49,7 +49,9 @@ public class StrategyEngineService {
                         signal.quantity(), 
                         currentPrice, 
                         signal.stopLoss(), 
-                        signal.takeProfit()
+                        signal.takeProfit(),
+                        signal.breakevenMultiplier(),
+                        signal.trailingMultiplier()
                 );
                 // Return immediately so we don't open overlapping trades inside the same iteration
                 return;

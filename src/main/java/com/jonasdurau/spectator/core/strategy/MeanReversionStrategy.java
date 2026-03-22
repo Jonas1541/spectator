@@ -104,7 +104,7 @@ public class MeanReversionStrategy implements TradingStrategy {
             }
 
             double quantity = riskManagerService.calculatePositionSize(cPrice, stopLoss);
-            return TradeSignal.enter(TradeSide.LONG, quantity, stopLoss, target);
+            return TradeSignal.enter(TradeSide.LONG, quantity, stopLoss, target, null, null);
         }
 
         return TradeSignal.ignore();

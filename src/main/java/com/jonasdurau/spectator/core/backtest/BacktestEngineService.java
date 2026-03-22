@@ -59,6 +59,8 @@ public class BacktestEngineService {
         double stopLoss = 0.0;
         double takeProfit = 0.0;
         MarketRegime lastRegime = null;
+        Double currentBreakevenMultiplier = null;
+        Double currentTrailingMultiplier = null;
 
         double grossProfit = 0.0;
         double grossLoss = 0.0;
@@ -121,18 +123,34 @@ public class BacktestEngineService {
                     tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, exitPrice, netPnl));
                     inPosition = false;
                 } else {
-                    // ---> GESTÃO DE TRADE: 2R Breakeven "Set & Forget" <---
+                    // ---> GESTÃO DE TRADE: Breakeven e Trailing Paramétricos <---
                     double riskDistance = Math.abs(entryPrice - initialStopLoss);
                     
-                    if (currentSide == TradeSide.LONG) {
-                        // Se o preço subiu 2x a distância do nosso risco inicial
-                        if (currentCandle.getHigh() >= (entryPrice + (riskDistance * 2.0))) {
-                            if (stopLoss < entryPrice) stopLoss = entryPrice; // Move pro zero-a-zero
+                    if (currentBreakevenMultiplier != null) {
+                        if (currentSide == TradeSide.LONG) {
+                            if (currentCandle.getHigh() >= (entryPrice + (riskDistance * currentBreakevenMultiplier))) {
+                                if (stopLoss < entryPrice) stopLoss = entryPrice;
+                            }
+                        } else { // SHORT
+                            if (currentCandle.getLow() <= (entryPrice - (riskDistance * currentBreakevenMultiplier))) {
+                                if (stopLoss > entryPrice) stopLoss = entryPrice;
+                            }
                         }
-                    } else { // SHORT
-                        // Se o preço caiu 2x a distância do nosso risco inicial
-                        if (currentCandle.getLow() <= (entryPrice - (riskDistance * 2.0))) {
-                            if (stopLoss > entryPrice) stopLoss = entryPrice; // Move pro zero-a-zero
+                    }
+                    
+                    if (currentTrailingMultiplier != null) {
+                        double trailingDistance = riskDistance * currentTrailingMultiplier;
+                        
+                        if (currentSide == TradeSide.LONG) {
+                            double potentialStop = currentCandle.getHigh() - trailingDistance;
+                            if (potentialStop > stopLoss) {
+                                stopLoss = potentialStop; // Sobe o stop
+                            }
+                        } else { // SHORT
+                            double potentialStop = currentCandle.getLow() + trailingDistance;
+                            if (potentialStop < stopLoss) {
+                                stopLoss = potentialStop; // Desce o stop
+                            }
                         }
                     }
                 }
@@ -166,8 +184,9 @@ public class BacktestEngineService {
                 entryPrice = currentCandle.getClose();
                 stopLoss = signal.stopLoss();
                 takeProfit = signal.takeProfit();
-                stopLoss = signal.stopLoss();
                 initialStopLoss = stopLoss; // Guarda o risco original para calcular o 1R depois
+                currentBreakevenMultiplier = signal.breakevenMultiplier();
+                currentTrailingMultiplier = signal.trailingMultiplier();
                 
                 // Risco Profissional Limitado a 0.25%
                 double riskAmount = currentCapital * 0.0025;

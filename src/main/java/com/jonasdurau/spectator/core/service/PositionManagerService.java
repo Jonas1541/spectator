@@ -29,11 +29,13 @@ public class PositionManagerService {
 
     @Transactional
     public Position openPosition(String symbol, TradeSide side, double entryPrice, double quantity, Double stopLoss,
-            Double takeProfit) {
+            Double takeProfit, Double breakevenMultiplier, Double trailingMultiplier) {
         log.info("Opening {} position for {} at {} (Qty: {})", side, symbol, entryPrice, quantity);
         Position position = new Position(symbol, side, entryPrice, quantity, stopLoss, takeProfit);
 
         Trade trade = new Trade(position, symbol, side, entryPrice, quantity, Instant.now());
+        position.setBreakevenMultiplier(breakevenMultiplier);
+        position.setTrailingMultiplier(trailingMultiplier);
         position.addTrade(trade);
 
         position = positionRepository.save(position);
@@ -65,29 +67,60 @@ public class PositionManagerService {
         for (Position position : openPositions) {
             double pnl = position.calculateFloatingPnl(currentPrice);
 
-            // ---> NOVO: GESTÃO DE TRADE: 2R Breakeven "Set & Forget" <---
+            // ---> NOVO: GESTÃO DE TRADE: Breakeven e Trailing Paramétricos <---
             boolean stopMoved = false;
             Double currentStop = position.getStopLoss();
+            Double initialStop = position.getInitialStopLoss();
+            Double breakevenMult = position.getBreakevenMultiplier();
+            Double trailingMult = position.getTrailingMultiplier();
             double entryPrice = position.getEntryPrice();
 
-            // Usamos uma margem de segurança (0.000001) em vez de '!=' por causa do double do Java.
-            // Só executa se o Stop Loss existir e ainda NÃO estiver no zero-a-zero.
-            if (currentStop != null && Math.abs(currentStop - entryPrice) > 0.000001) {
-                double riskDistance = Math.abs(entryPrice - currentStop);
+            if (currentStop != null && initialStop != null) {
+                double riskDistance = Math.abs(entryPrice - initialStop);
 
-                if (position.getSide() == TradeSide.LONG) {
-                    // Se o preço subiu 2x a distância do risco inicial
-                    if (currentPrice >= (entryPrice + (riskDistance * 2.0))) {
-                        position.setStopLoss(entryPrice);
-                        stopMoved = true;
-                        log.info("2R Breakeven hit for LONG on {}! Stop moved to entry: {}", symbol, entryPrice);
+                // --- 1. BREAKEVEN LOGIC ---
+                if (breakevenMult != null && Math.abs(currentStop - entryPrice) > 0.000001) {
+                    if (position.getSide() == TradeSide.LONG) {
+                        if (currentPrice >= (entryPrice + (riskDistance * breakevenMult))) {
+                            if (currentStop < entryPrice) {
+                                position.setStopLoss(entryPrice);
+                                currentStop = entryPrice; // Update memory for trailing step
+                                stopMoved = true;
+                                log.info("Breakeven hit for LONG on {}! Stop moved to entry: {}", symbol, entryPrice);
+                            }
+                        }
+                    } else { // SHORT
+                        if (currentPrice <= (entryPrice - (riskDistance * breakevenMult))) {
+                            if (currentStop > entryPrice) {
+                                position.setStopLoss(entryPrice);
+                                currentStop = entryPrice;
+                                stopMoved = true;
+                                log.info("Breakeven hit for SHORT on {}! Stop moved to entry: {}", symbol, entryPrice);
+                            }
+                        }
                     }
-                } else { // SHORT
-                    // Se o preço caiu 2x a distância do risco inicial
-                    if (currentPrice <= (entryPrice - (riskDistance * 2.0))) {
-                        position.setStopLoss(entryPrice);
-                        stopMoved = true;
-                        log.info("2R Breakeven hit for SHORT on {}! Stop moved to entry: {}", symbol, entryPrice);
+                }
+
+                // --- 2. TRAILING LOGIC ---
+                if (trailingMult != null) {
+                    double trailingDistance = riskDistance * trailingMult;
+
+                    if (position.getSide() == TradeSide.LONG) {
+                        double potentialStop = currentPrice - trailingDistance;
+                        if (potentialStop > currentStop) {
+                            position.setStopLoss(potentialStop);
+                            currentStop = potentialStop; 
+                            stopMoved = true;
+                            log.info("Trailing Stop moved HIGHER for LONG on {}! New Stop: {}", symbol, potentialStop);
+                        }
+                    } else { // SHORT
+                        double potentialStop = currentPrice + trailingDistance;
+                        if (potentialStop < currentStop) {
+                            position.setStopLoss(potentialStop);
+                            currentStop = potentialStop;
+                            stopMoved = true;
+                            log.info("Trailing Stop moved LOWER for SHORT on {}! New Stop: {}", symbol, potentialStop);
+                        }
                     }
                 }
             }

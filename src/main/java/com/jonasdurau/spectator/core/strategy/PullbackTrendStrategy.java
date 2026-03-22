@@ -98,7 +98,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 double target = cPrice + ((cPrice - stopLoss) * 5.0);
 
                 double quantity = riskManagerService.calculatePositionSize(cPrice, stopLoss);
-                return TradeSignal.enter(TradeSide.LONG, quantity, stopLoss, target);
+                return TradeSignal.enter(TradeSide.LONG, quantity, stopLoss, target, 2.0, null);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             boolean bearishCandle = cPrice < oPrice;
@@ -111,7 +111,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 double target = cPrice - ((stopLoss - cPrice) * 5.0);
                 
                 double quantity = riskManagerService.calculatePositionSize(cPrice, stopLoss);
-                return TradeSignal.enter(TradeSide.SHORT, quantity, stopLoss, target);
+                return TradeSignal.enter(TradeSide.SHORT, quantity, stopLoss, target, 2.0, null);
             }
         }
 

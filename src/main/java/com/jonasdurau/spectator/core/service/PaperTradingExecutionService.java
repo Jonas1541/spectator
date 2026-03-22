@@ -17,8 +17,8 @@ public class PaperTradingExecutionService implements OrderExecutionService {
 
     @Override
     public void executeMarketOrder(String symbol, TradeSide side, double quantity, double currentPrice, Double stopLoss,
-            Double takeProfit) {
+            Double takeProfit, Double breakevenMultiplier, Double trailingMultiplier) {
         log.info("[PAPER TRADING] Executing {} order for {} at {}", side, symbol, currentPrice);
-        positionManagerService.openPosition(symbol, side, currentPrice, quantity, stopLoss, takeProfit);
+        positionManagerService.openPosition(symbol, side, currentPrice, quantity, stopLoss, takeProfit, breakevenMultiplier, trailingMultiplier);
     }
 }
