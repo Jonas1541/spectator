@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.indicators.ATRIndicator;
-import org.ta4j.core.indicators.MACDIndicator;
+
 import org.ta4j.core.indicators.averages.EMAIndicator;
 import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
@@ -61,16 +61,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
         // NOVO: ATR para o Stop Loss Dinâmico
         ATRIndicator atr = new ATRIndicator(series, 14);
 
-        // NOVO: MACD para confirmar o Momento (Momentum)
-        MACDIndicator macd = new MACDIndicator(closePrice, 12, 26);
-        EMAIndicator macdSignalLine = new EMAIndicator(macd, 9);
-        
-        double currentMacd = macd.getValue(endIndex).doubleValue();
-        double currentSignal = macdSignalLine.getValue(endIndex).doubleValue();
-        
-        // MACD Bullish = Linha MACD > Linha de Sinal
-        boolean isMacdBullish = currentMacd > currentSignal;
-        boolean isMacdBearish = currentMacd < currentSignal;
+
         
         double cPrice = closePrice.getValue(endIndex).doubleValue();
         double oPrice = openPrice.getValue(endIndex).doubleValue();
@@ -98,7 +89,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
             // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa vela de alta
             boolean longPinBar = currentLow < e50 && cPrice > e50 && cPrice > oPrice;
 
-            if (longPinBar && strongVolume && isMacdBullish) { 
+            if (longPinBar && strongVolume) { 
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() < 0) {
                     log.info("[{}] Trigger ignored! Order Flow is heavily bearish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
@@ -108,7 +99,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                log.info("[{}] PIN BAR LONG! Low ({}) swept below EMA-50 ({}), close ({}) recovered above. MACD Bullish.", 
+                log.info("[{}] PIN BAR LONG! Low ({}) swept below EMA-50 ({}), close ({}) recovered above.", 
                          getName(), String.format("%.2f", currentLow), String.format("%.2f", e50), String.format("%.2f", cPrice));
                 
                 // Stop Loss Dinâmico 3.0x o ATR abaixo da entrada
@@ -124,16 +115,14 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
 
-                // Phase 16: Partial Take Profit at midpoint (50% of lot)
-                double tp1 = cPrice + (risk * 1.5); // TP1 at 1.5R
-                return TradeSignal.enterWithPartialTp(TradeSide.LONG, stopLoss, target, 2.0, null, 0.30, tp1, 0.5);
+                return TradeSignal.enter(TradeSide.LONG, stopLoss, target, null, null, 0.30);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             // === SHORT: Pin Bar na EMA 50 (Vela Única) ===
             // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa vela de baixa
             boolean shortPinBar = currentHigh > e50 && cPrice < e50 && cPrice < oPrice;
             
-            if (shortPinBar && strongVolume && isMacdBearish) { 
+            if (shortPinBar && strongVolume) { 
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() > 0) {
                     log.info("[{}] Trigger ignored! Order Flow is heavily bullish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
@@ -143,7 +132,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                log.info("[{}] PIN BAR SHORT! High ({}) swept above EMA-50 ({}), close ({}) recovered below. MACD Bearish.", 
+                log.info("[{}] PIN BAR SHORT! High ({}) swept above EMA-50 ({}), close ({}) recovered below.", 
                          getName(), String.format("%.2f", currentHigh), String.format("%.2f", e50), String.format("%.2f", cPrice));
                 
                 // Stop Loss Dinâmico 1.5x o ATR acima da entrada
@@ -159,9 +148,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                // Phase 16: Partial Take Profit at midpoint (50% of lot)
-                double tp1 = cPrice - (risk * 1.5); // TP1 at 1.5R
-                return TradeSignal.enterWithPartialTp(TradeSide.SHORT, stopLoss, target, 2.0, null, 0.30, tp1, 0.5);
+                return TradeSignal.enter(TradeSide.SHORT, stopLoss, target, null, null, 0.30);
             }
         }
 

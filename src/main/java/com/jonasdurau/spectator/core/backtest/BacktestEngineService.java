@@ -206,7 +206,10 @@ public class BacktestEngineService {
                         }
                     }
 
-                    // --- PHASE 16: PANIC CLOSE (HMM Regime Shift in Backtest) ---
+                    // --- PHASE 16: PANIC CLOSE (HMM Regime Shift in Backtest) --- DISABLED
+                    // Trade deve fechar exclusivamente por Stop Loss ou Take Profit (Tudo ou Nada).
+                    // Bloco desligado para preservar a integridade do R:R planeado na entrada.
+                    /*
                     if (currentStrategyName != null && currentStrategyName.toLowerCase().contains("pullback")) {
                         List<Candle> panicWindow4h = history4h.stream().filter(c -> !c.getTime().isAfter(currentCandle.getTime())).toList();
                         if (panicWindow4h.size() > 250) panicWindow4h = panicWindow4h.subList(panicWindow4h.size() - 250, panicWindow4h.size());
@@ -243,6 +246,7 @@ public class BacktestEngineService {
                             inPosition = false;
                         }
                     }
+                    */
                 }
                 continue;
             }
