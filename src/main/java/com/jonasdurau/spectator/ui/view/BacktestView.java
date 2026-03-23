@@ -29,6 +29,8 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -55,6 +57,7 @@ public class BacktestView extends VerticalLayout {
     private final DatePicker endDatePicker = new DatePicker("End Date");
     private final NumberField capitalField = new NumberField("Starting Capital (USDT)");
     private final ComboBox<StrategyOption> strategySelector = new ComboBox<>("Strategy Mode");
+    private final ComboBox<String> symbolSelector = new ComboBox<>("Symbol");
     private final Button runButton = new Button("Sync & Run Backtest");
     private final Checkbox walkForwardToggle = new Checkbox("Walk-Forward Analysis (5 Slices)");
     
@@ -78,12 +81,19 @@ public class BacktestView extends VerticalLayout {
                         BacktestEngineService backtestEngine, 
                         CandleRepository candleRepository, 
                         List<TradingStrategy> availableStrategies,
-                        WalkForwardAnalyzerService walkForwardAnalyzer) {
+                        WalkForwardAnalyzerService walkForwardAnalyzer,
+                        @Value("${spectator.symbols}") String symbolsConfig) {
         this.syncService = syncService;
         this.backtestEngine = backtestEngine;
         this.candleRepository = candleRepository;
         this.availableStrategies = availableStrategies;
         this.walkForwardAnalyzer = walkForwardAnalyzer;
+
+        // Parse configured symbols for the selector
+        String[] symbols = symbolsConfig.split(",");
+        symbolSelector.setItems(java.util.Arrays.stream(symbols).map(s -> s.trim().toUpperCase()).toList());
+        symbolSelector.setValue(symbols[0].trim().toUpperCase());
+        symbolSelector.setWidth("140px");
 
         setSizeFull();
         setPadding(true);
@@ -146,7 +156,7 @@ public class BacktestView extends VerticalLayout {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(e -> executeBacktest());
 
-        controls.add(strategySelector, startDatePicker, endDatePicker, capitalField, walkForwardToggle, runButton);
+        controls.add(symbolSelector, strategySelector, startDatePicker, endDatePicker, capitalField, walkForwardToggle, runButton);
         add(controls);
     }
 
@@ -207,28 +217,28 @@ public class BacktestView extends VerticalLayout {
         Instant end = endDatePicker.getValue().atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
         StrategyOption selectedOption = strategySelector.getValue();
         double initialCapital = capitalField.getValue();
+        String symbol = symbolSelector.getValue();
 
         UI ui = UI.getCurrent();
         Thread backgroundThread = new Thread(() -> {
             try {
-                syncService.syncPeriod("BTCUSDT", "4h", start, end);
-                syncService.syncPeriod("BTCUSDT", "1h", start, end);
+                syncService.syncPeriod(symbol, "4h", start, end);
+                syncService.syncPeriod(symbol, "1h", start, end);
 
                 if (walkForwardToggle.getValue()) {
                     // MODO WALK FORWARD (5 Fatias)
                     
                     // 1. Roda o backtest COMPLETO para preencher o painel superior e o gráfico com tudo!
                     BacktestReport overallReport = backtestEngine.runBacktest(
-                            selectedOption.name() + " (Overall)", selectedOption.strategies(), "BTCUSDT", start, end, initialCapital
+                            selectedOption.name() + " (Overall)", selectedOption.strategies(), symbol, start, end, initialCapital
                     );
 
                     // 2. Roda o fatiador para preencher a tabela de consistência
                     WalkForwardReport wfaReport = walkForwardAnalyzer.runAnalysis(
-                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, initialCapital, 5
+                            selectedOption.name(), selectedOption.strategies(), symbol, start, end, initialCapital, 5
                     );
                     
-                    // 3. Pega TODOS os candles do período total para o gráfico
-                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
+                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
 
                     ui.access(() -> {
                         wfaGrid.setItems(wfaReport.sliceReports());
@@ -250,9 +260,9 @@ public class BacktestView extends VerticalLayout {
                 } else {
                     // STANDARD MODE
                     BacktestReport report = backtestEngine.runBacktest(
-                            selectedOption.name(), selectedOption.strategies(), "BTCUSDT", start, end, initialCapital
+                            selectedOption.name(), selectedOption.strategies(), symbol, start, end, initialCapital
                     );
-                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc("BTCUSDT", "1h", start, end);
+                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
 
                     ui.access(() -> {
                         wfaGrid.setVisible(false);
