@@ -11,9 +11,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import com.jonasdurau.spectator.core.service.RiskManagerService;
+import com.jonasdurau.spectator.core.service.HistoricalSyncService;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 
 @Service
@@ -25,18 +28,24 @@ public class BacktestEngineService {
     private final RegimeAnalyzerService regimeAnalyzerService;
     private final MonteCarloSimulatorService monteCarloSimulator;
     private final RiskManagerService riskManagerService;
+    private final HistoricalSyncService historicalSyncService;
 
     private static final int WARMUP_PERIOD = 200; 
 
-    public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator, RiskManagerService riskManagerService) {
+    public BacktestEngineService(CandleRepository candleRepository, RegimeAnalyzerService regimeAnalyzerService, MonteCarloSimulatorService monteCarloSimulator, RiskManagerService riskManagerService, HistoricalSyncService historicalSyncService) {
         this.candleRepository = candleRepository;
         this.regimeAnalyzerService = regimeAnalyzerService;
         this.monteCarloSimulator = monteCarloSimulator;
         this.riskManagerService = riskManagerService;
+        this.historicalSyncService = historicalSyncService;
     }
 
     public BacktestReport runBacktest(String executionName, List<TradingStrategy> strategies, String symbol, Instant start, Instant end, double initialCapital) {
         log.info("Starting backtest for {} on {} from {} to {}", executionName, symbol, start, end);
+
+        // Garante que o banco de dados tem dados suficientes antes de iniciar
+        historicalSyncService.ensureDataAvailable(symbol, "1h", start, end);
+        historicalSyncService.ensureDataAvailable(symbol, "4h", start, end);
 
         List<Candle> history1h = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
         List<Candle> history4h = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "4h", start, end);
@@ -71,6 +80,10 @@ public class BacktestEngineService {
 
         double grossProfit = 0.0;
         double grossLoss = 0.0;
+
+        // Dynamic Win Rate tracking per strategy
+        Map<String, Integer> strategyWins = new HashMap<>();
+        Map<String, Integer> strategyLosses = new HashMap<>();
         List<Double> tradeReturns = new java.util.ArrayList<>(); 
 
         for (int i = WARMUP_PERIOD; i < history1h.size(); i++) {
@@ -104,8 +117,8 @@ public class BacktestEngineService {
                                  (exitPrice - entryPrice) * positionQuantity : 
                                  (entryPrice - exitPrice) * positionQuantity;
                     
-                    double entryFee = (entryPrice * positionQuantity) * 0.001;
-                    double exitFee = (exitPrice * positionQuantity) * 0.001;
+                    double entryFee = (entryPrice * positionQuantity) * 0.0005;
+                    double exitFee = (exitPrice * positionQuantity) * 0.0005;
                     double totalFee = entryFee + exitFee;
                     
                     double netPnl = grossPnl - totalFee;
@@ -116,9 +129,11 @@ public class BacktestEngineService {
                     if (netPnl > 0) {
                         winningTrades++;
                         grossProfit += netPnl;
+                        if (currentStrategyName != null) strategyWins.merge(currentStrategyName, 1, Integer::sum);
                     } else {
                         losingTrades++;
                         grossLoss += Math.abs(netPnl);
+                        if (currentStrategyName != null) strategyLosses.merge(currentStrategyName, 1, Integer::sum);
                     }
 
                     if (currentCapital > peakCapital) peakCapital = currentCapital;
@@ -212,8 +227,13 @@ public class BacktestEngineService {
                             double netPnl = grossPnl - pEntryFee - pExitFee;
                             currentCapital += netPnl;
                             tradeReturns.add(netPnl);
-                            if (netPnl > 0) { winningTrades++; grossProfit += netPnl; }
-                            else { losingTrades++; grossLoss += Math.abs(netPnl); }
+                            if (netPnl > 0) {
+                                winningTrades++; grossProfit += netPnl;
+                                if (currentStrategyName != null) strategyWins.merge(currentStrategyName, 1, Integer::sum);
+                            } else {
+                                losingTrades++; grossLoss += Math.abs(netPnl);
+                                if (currentStrategyName != null) strategyLosses.merge(currentStrategyName, 1, Integer::sum);
+                            }
                             if (currentCapital > peakCapital) peakCapital = currentCapital;
                             else {
                                 double drawdown = ((peakCapital - currentCapital) / peakCapital) * 100;
@@ -270,13 +290,22 @@ public class BacktestEngineService {
                     }
                 }
                 
+                // Dynamic Win Probability calculation
+                int dynWins = (currentStrategyName != null) ? strategyWins.getOrDefault(currentStrategyName, 0) : 0;
+                int dynLosses = (currentStrategyName != null) ? strategyLosses.getOrDefault(currentStrategyName, 0) : 0;
+                int totalClosed = dynWins + dynLosses;
+                double dynamicWinProb = 0.40;
+                if (totalClosed >= 5) {
+                    dynamicWinProb = (double) dynWins / totalClosed;
+                }
+
                 // Fractional Kelly & Max Exposure Sizing
                 double currentExposurePct = 0.0; // Backtest allows 1 active trade at a time currently
                 positionQuantity = riskManagerService.calculateKellyPositionSize(
                         entryPrice,
                         stopLoss,
                         takeProfit,
-                        signal.winProbability(),
+                        dynamicWinProb,
                         currentCapital,
                         currentExposurePct
                 );

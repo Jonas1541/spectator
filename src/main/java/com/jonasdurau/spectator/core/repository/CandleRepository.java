@@ -34,6 +34,11 @@ public interface CandleRepository extends JpaRepository<Candle, CandleId> {
     Candle findTopBySymbolAndTimeframeOrderByTimeDesc(String symbol, String timeframe);
 
     /**
+     * Conta o número de velas existentes no banco para um dado período.
+     */
+    long countBySymbolAndTimeframeAndTimeBetween(String symbol, String timeframe, Instant start, Instant end);
+
+    /**
      * UPSERT nativo otimizado para PostgreSQL/TimescaleDB.
      * Insere o candle. Se a chave composta (symbol, time) já existir, 
      * ele atualiza os valores imediatamente num único comando atômico.

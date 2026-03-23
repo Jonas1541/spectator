@@ -11,7 +11,7 @@ public class RiskManagerService {
     
     private static final double KELLY_FRACTION_MULTIPLIER = 0.05; // 1/20th Kelly (to prevent massive leverage fee drag)
     private static final double MAX_EXPOSURE_PERCENTAGE = 0.30; // 30% Max Global Exposure
-    private static final double MAX_SINGLE_TRADE_RISK = 0.01; // 1% absolute risk cap per trade
+    private static final double MAX_SINGLE_TRADE_RISK = 0.02; // 2% absolute risk cap per trade
 
     /**
      * Calculates the position size based on the Fractional Kelly Criterion.
