@@ -1,5 +1,6 @@
 package com.jonasdurau.spectator.ui.view;
 
+import com.jonasdurau.spectator.core.backtest.BacktestCsvExporter;
 import com.jonasdurau.spectator.core.backtest.BacktestEngineService;
 import com.jonasdurau.spectator.core.backtest.BacktestReport;
 import com.jonasdurau.spectator.core.backtest.MonteCarloReport;
@@ -18,6 +19,7 @@ import com.vaadin.flow.component.checkbox.Checkbox;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
@@ -27,10 +29,13 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.NumberField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import com.vaadin.flow.server.StreamResource;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 
 import org.springframework.beans.factory.annotation.Value;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -60,6 +65,12 @@ public class BacktestView extends VerticalLayout {
     private final ComboBox<String> symbolSelector = new ComboBox<>("Symbol");
     private final Button runButton = new Button("Sync & Run Backtest");
     private final Checkbox walkForwardToggle = new Checkbox("Walk-Forward Analysis (5 Slices)");
+    private final Button exportCsvButton = new Button("📊 Export CSV");
+    private final Anchor downloadAnchor = new Anchor();
+    
+    // State for CSV export
+    private List<Candle> lastChartData;
+    private BacktestReport lastReport;
     
     // Results Board
     private final Span winRateLabel = new Span("-");
@@ -156,8 +167,22 @@ public class BacktestView extends VerticalLayout {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(e -> executeBacktest());
 
-        controls.add(symbolSelector, strategySelector, startDatePicker, endDatePicker, capitalField, walkForwardToggle, runButton);
-        add(controls);
+        exportCsvButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        exportCsvButton.setEnabled(false);
+        exportCsvButton.addClickListener(e -> triggerCsvDownload());
+        
+        // Anchor invisível para disparar o download do browser
+        downloadAnchor.getElement().setAttribute("download", true);
+        downloadAnchor.getStyle().set("display", "none");
+
+        controls.add(symbolSelector, strategySelector, startDatePicker, endDatePicker, capitalField, runButton);
+
+        HorizontalLayout secondaryControls = new HorizontalLayout();
+        secondaryControls.setAlignItems(Alignment.CENTER);
+        secondaryControls.setSpacing(true);
+        secondaryControls.add(walkForwardToggle, exportCsvButton);
+
+        add(controls, secondaryControls, downloadAnchor);
     }
 
     private void createResultsBoard() {
@@ -252,6 +277,10 @@ public class BacktestView extends VerticalLayout {
                         updateResultsBoard(overallReport);
                         chart.setBacktestData(chartData, overallReport.tradeLog(), overallReport.regimeChanges());
                         
+                        lastChartData = chartData;
+                        lastReport = overallReport;
+                        exportCsvButton.setEnabled(true);
+                        
                         runButton.setEnabled(true);
                         runButton.setText("Sync & Run Backtest");
                         Notification.show("Walk-Forward completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
@@ -270,6 +299,10 @@ public class BacktestView extends VerticalLayout {
                         
                         updateResultsBoard(report);
                         chart.setBacktestData(chartData, report.tradeLog(), report.regimeChanges());
+                        
+                        lastChartData = chartData;
+                        lastReport = report;
+                        exportCsvButton.setEnabled(true);
                         
                         runButton.setEnabled(true);
                         runButton.setText("Sync & Run Backtest");
@@ -341,5 +374,33 @@ public class BacktestView extends VerticalLayout {
         // --- MEDIAN DRAWDOWN ---
         medianDdLabel.setText(String.format(java.util.Locale.US, "%.2f%%", mc.medianMaxDrawdown()));
         medianDdLabel.getStyle().set("color", colorRed);
+    }
+
+    private void triggerCsvDownload() {
+        if (lastChartData == null || lastReport == null) {
+            Notification.show("Run a backtest first.", 3000, Notification.Position.TOP_CENTER);
+            return;
+        }
+
+        String csvContent = BacktestCsvExporter.export(lastChartData, lastReport);
+        byte[] csvBytes = csvContent.getBytes(StandardCharsets.UTF_8);
+
+        String startStr = startDatePicker.getValue() != null ? startDatePicker.getValue().toString() : "start";
+        String endStr = endDatePicker.getValue() != null ? endDatePicker.getValue().toString() : "end";
+        String symbol = symbolSelector.getValue() != null ? symbolSelector.getValue() : "UNKNOWN";
+        String filename = String.format("backtest_%s_%s_%s.csv", symbol, startStr, endStr);
+
+        StreamResource resource = new StreamResource(filename, () -> new ByteArrayInputStream(csvBytes));
+        resource.setContentType("text/csv");
+        resource.setCacheTime(0);
+
+        downloadAnchor.setHref(resource);
+        downloadAnchor.getElement().setAttribute("download", filename);
+
+        // Dispara o clique programaticamente para iniciar o download
+        downloadAnchor.getElement().executeJs("this.click();");
+
+        Notification.show("CSV exported: " + filename, 3000, Notification.Position.TOP_END)
+                .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
     }
 }
