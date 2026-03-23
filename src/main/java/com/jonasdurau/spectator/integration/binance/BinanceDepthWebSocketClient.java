@@ -18,10 +18,11 @@ import java.util.stream.Collectors;
 public class BinanceDepthWebSocketClient extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceDepthWebSocketClient.class);
-    private static final String BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/";
+    private static final String BINANCE_WS_URL = "wss://fstream.binance.com/ws/";
 
     private final ObjectMapper objectMapper;
     private final OrderBookService orderBookService;
+    private String connectedSymbol;
 
     public BinanceDepthWebSocketClient(ObjectMapper objectMapper, OrderBookService orderBookService) {
         this.objectMapper = objectMapper;
@@ -29,6 +30,7 @@ public class BinanceDepthWebSocketClient extends TextWebSocketHandler {
     }
 
     public void connect(String symbol) {
+        this.connectedSymbol = symbol.toUpperCase();
         String streamUrl = BINANCE_WS_URL + symbol.toLowerCase() + "@depth5@100ms";
 
         StandardWebSocketClient client = new StandardWebSocketClient();
@@ -58,7 +60,7 @@ public class BinanceDepthWebSocketClient extends TextWebSocketHandler {
                 .map(entry -> new PriceLevel(Double.parseDouble(entry.get(0)), Double.parseDouble(entry.get(1))))
                 .collect(Collectors.toList());
 
-        orderBookService.updateOrderBook(mappedBids, mappedAsks);
+        orderBookService.updateOrderBook(connectedSymbol, mappedBids, mappedAsks);
     }
 
     @Override

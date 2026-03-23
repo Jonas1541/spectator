@@ -2,6 +2,7 @@ package com.jonasdurau.spectator.core.strategy;
 
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
+import com.jonasdurau.spectator.core.domain.OrderFlowContext;
 import com.jonasdurau.spectator.core.domain.TradeSide;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +43,7 @@ public class MeanReversionStrategy implements TradingStrategy {
     }
 
     @Override
-    public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice) {
+    public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice, OrderFlowContext orderFlowContext) {
         if (current4hRegime != MarketRegime.SIDEWAYS) {
             return TradeSignal.ignore();
         }

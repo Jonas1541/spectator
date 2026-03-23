@@ -64,6 +64,10 @@ public class BacktestEngineService {
         MarketRegime lastRegime = null;
         Double currentBreakevenMultiplier = null;
         Double currentTrailingMultiplier = null;
+        Double tp1Price = null;
+        double tp1Quantity = 0.0;
+        boolean tp1Triggered = false;
+        String currentStrategyName = null;
 
         double grossProfit = 0.0;
         double grossLoss = 0.0;
@@ -156,6 +160,69 @@ public class BacktestEngineService {
                             }
                         }
                     }
+                    
+                    // --- PHASE 16: PARTIAL TP1 CHECK (inside management block) ---
+                    if (!tp1Triggered && tp1Price != null) {
+                        boolean tp1Hit = false;
+                        if (currentSide == TradeSide.LONG && currentCandle.getHigh() >= tp1Price) {
+                            tp1Hit = true;
+                        } else if (currentSide == TradeSide.SHORT && currentCandle.getLow() <= tp1Price) {
+                            tp1Hit = true;
+                        }
+                        
+                        if (tp1Hit) {
+                            double partialPnl;
+                            if (currentSide == TradeSide.LONG) {
+                                partialPnl = (tp1Price - entryPrice) * tp1Quantity;
+                            } else {
+                                partialPnl = (entryPrice - tp1Price) * tp1Quantity;
+                            }
+                            double partialFees = (entryPrice * tp1Quantity * 0.0002) + (tp1Price * tp1Quantity * 0.0005);
+                            partialPnl -= partialFees;
+                            currentCapital += partialPnl;
+                            tradeReturns.add(partialPnl);
+                            if (partialPnl > 0) { winningTrades++; grossProfit += partialPnl; }
+                            else { losingTrades++; grossLoss += Math.abs(partialPnl); }
+                            
+                            positionQuantity -= tp1Quantity;
+                            tp1Triggered = true;
+                            stopLoss = entryPrice; // Move stop to breakeven
+                            tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, tp1Price, partialPnl));
+                        }
+                    }
+
+                    // --- PHASE 16: PANIC CLOSE (HMM Regime Shift in Backtest) ---
+                    if (currentStrategyName != null && currentStrategyName.toLowerCase().contains("pullback")) {
+                        List<Candle> panicWindow4h = history4h.stream().filter(c -> !c.getTime().isAfter(currentCandle.getTime())).toList();
+                        if (panicWindow4h.size() > 250) panicWindow4h = panicWindow4h.subList(panicWindow4h.size() - 250, panicWindow4h.size());
+                        MarketRegime midTradeRegime = MarketRegime.SIDEWAYS;
+                        if (panicWindow4h.size() > 50) midTradeRegime = regimeAnalyzerService.analyze(panicWindow4h);
+                        
+                        boolean panicClose = false;
+                        if (currentSide == TradeSide.LONG && midTradeRegime != MarketRegime.TRENDING_UP) panicClose = true;
+                        else if (currentSide == TradeSide.SHORT && midTradeRegime != MarketRegime.TRENDING_DOWN) panicClose = true;
+                        
+                        if (panicClose) {
+                            double panicExitPrice = currentCandle.getClose();
+                            double grossPnl = (currentSide == TradeSide.LONG) ? 
+                                         (panicExitPrice - entryPrice) * positionQuantity : 
+                                         (entryPrice - panicExitPrice) * positionQuantity;
+                            double pEntryFee = (entryPrice * positionQuantity) * 0.0002;
+                            double pExitFee = (panicExitPrice * positionQuantity) * 0.0005;
+                            double netPnl = grossPnl - pEntryFee - pExitFee;
+                            currentCapital += netPnl;
+                            tradeReturns.add(netPnl);
+                            if (netPnl > 0) { winningTrades++; grossProfit += netPnl; }
+                            else { losingTrades++; grossLoss += Math.abs(netPnl); }
+                            if (currentCapital > peakCapital) peakCapital = currentCapital;
+                            else {
+                                double drawdown = ((peakCapital - currentCapital) / peakCapital) * 100;
+                                if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+                            }
+                            tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, false, panicExitPrice, netPnl));
+                            inPosition = false;
+                        }
+                    }
                 }
                 continue;
             }
@@ -175,7 +242,7 @@ public class BacktestEngineService {
 
             TradeSignal signal = TradeSignal.ignore();
             for (TradingStrategy strategy : strategies) {
-                signal = strategy.evaluate(window1h, regime, currentCandle.getClose());
+                signal = strategy.evaluate(window1h, regime, currentCandle.getClose(), null);
                 if (signal.fire()) {
                     break; 
                 }
@@ -190,6 +257,18 @@ public class BacktestEngineService {
                 initialStopLoss = stopLoss; // Guarda o risco original para calcular o 1R depois
                 currentBreakevenMultiplier = signal.breakevenMultiplier();
                 currentTrailingMultiplier = signal.trailingMultiplier();
+                tp1Triggered = false;
+                tp1Price = signal.tp1Price();
+                currentStrategyName = null;
+
+                // Resolve which strategy fired for panic close
+                for (TradingStrategy s : strategies) {
+                    TradeSignal check = s.evaluate(window1h, regime, currentCandle.getClose(), null);
+                    if (check.fire()) {
+                        currentStrategyName = s.getName();
+                        break;
+                    }
+                }
                 
                 // Fractional Kelly & Max Exposure Sizing
                 double currentExposurePct = 0.0; // Backtest allows 1 active trade at a time currently
@@ -205,6 +284,13 @@ public class BacktestEngineService {
                 if (positionQuantity <= 0.0) {
                      inPosition = false; // Reject trade
                      continue; 
+                }
+
+                // Calculate TP1 quantity
+                if (tp1Price != null && signal.tp1SizePct() != null) {
+                    tp1Quantity = positionQuantity * signal.tp1SizePct();
+                } else {
+                    tp1Quantity = 0.0;
                 }
 
                 tradeLog.add(new BacktestTrade(currentCandle.getTime(), currentSide, true, entryPrice, 0.0));

@@ -12,7 +12,7 @@ public class BinanceConfig {
     @Bean
     public RestClient binanceApi() {
         return RestClient.builder()
-                .baseUrl("https://api.binance.com")
+                .baseUrl("https://fapi.binance.com")
                 .build();
     }
 

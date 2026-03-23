@@ -11,6 +11,7 @@ import com.vaadin.flow.component.DetachEvent;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
@@ -20,6 +21,8 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
+
+import org.springframework.beans.factory.annotation.Value;
 
 import java.text.NumberFormat;
 import java.util.Collections;
@@ -36,6 +39,11 @@ public class DashboardView extends VerticalLayout {
     private Consumer<MarketTick> broadcasterListener;
     private MarketRegime currentRegime = null;
 
+    // Symbol selection
+    private String selectedSymbol;
+    private final ComboBox<String> symbolSelector = new ComboBox<>();
+    private final Span priceLabelHeader = new Span("Live Price");
+
     // Componentes Visuais
     private final H2 priceLabel = new H2("Loading...");
     private final Span regimeBadge = new Span("ANALYZING");
@@ -45,36 +53,52 @@ public class DashboardView extends VerticalLayout {
 
     private final NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.US);
 
-    public DashboardView(MarketDataBroadcaster broadcaster, CandleRepository candleRepository) {
+    public DashboardView(MarketDataBroadcaster broadcaster, CandleRepository candleRepository,
+                         @Value("${spectator.symbols}") String symbolsConfig) {
         this.broadcaster = broadcaster;
         this.candleRepository = candleRepository;
+
+        // Parse configured symbols
+        String[] symbols = symbolsConfig.split(",");
+        this.selectedSymbol = symbols[0].trim().toUpperCase();
 
         setSizeFull();
         setPadding(true);
         setSpacing(true);
 
-        createHeader();
+        createHeader(symbols);
         createMetricsBoard();
 
-        // Adicionamos o gráfico no lugar do grid
         add(chart);
 
         loadInitialData();
     }
 
-    private void createHeader() {
+    private void createHeader(String[] symbols) {
         H1 title = new H1("Spectator | Live Dashboard");
         title.addClassNames(LumoUtility.FontSize.XXLARGE, LumoUtility.Margin.Bottom.NONE);
+
+        // Symbol selector dropdown
+        symbolSelector.setItems(java.util.Arrays.stream(symbols).map(s -> s.trim().toUpperCase()).toList());
+        symbolSelector.setValue(selectedSymbol);
+        symbolSelector.setWidth("160px");
+        symbolSelector.addValueChangeListener(e -> {
+            if (e.getValue() != null && !e.getValue().equals(selectedSymbol)) {
+                selectedSymbol = e.getValue();
+                priceLabelHeader.setText(selectedSymbol + " Live Price");
+                currentRegime = null;
+                loadInitialData();
+            }
+        });
 
         Button backtestButton = new Button("🧪 Backtest Studio");
         backtestButton.addThemeVariants(ButtonVariant.LUMO_CONTRAST);
         backtestButton.addClickListener(e -> UI.getCurrent().navigate(BacktestView.class));
 
-        // Empacota o título e o botão em uma linha
-        HorizontalLayout headerLayout = new HorizontalLayout(title, backtestButton);
+        HorizontalLayout headerLayout = new HorizontalLayout(title, symbolSelector, backtestButton);
         headerLayout.setWidthFull();
         headerLayout.setAlignItems(Alignment.CENTER);
-        headerLayout.setJustifyContentMode(JustifyContentMode.BETWEEN); // Empurra o botão pro canto direito
+        headerLayout.setJustifyContentMode(JustifyContentMode.BETWEEN);
 
         add(headerLayout);
     }
@@ -84,10 +108,10 @@ public class DashboardView extends VerticalLayout {
         board.setWidthFull();
         board.setAlignItems(Alignment.CENTER);
         board.setJustifyContentMode(JustifyContentMode.BETWEEN);
-        // Cores ajustadas para combinar com o fundo escuro
         board.addClassNames(LumoUtility.Background.BASE, LumoUtility.Padding.LARGE, LumoUtility.BorderRadius.LARGE);
 
-        VerticalLayout priceLayout = new VerticalLayout(new Span("BTC/USDT Live Price"), priceLabel);
+        priceLabelHeader.setText(selectedSymbol + " Live Price");
+        VerticalLayout priceLayout = new VerticalLayout(priceLabelHeader, priceLabel);
         priceLayout.setSpacing(false);
         priceLayout.setPadding(false);
         priceLabel.addClassNames(LumoUtility.TextColor.PRIMARY, LumoUtility.Margin.NONE);
@@ -117,16 +141,13 @@ public class DashboardView extends VerticalLayout {
     }
 
     private void loadInitialData() {
-        // Puxa os últimos 500 candles para o gráfico ficar bonito
-        List<Candle> initialCandles = candleRepository.findLastCandles("BTCUSDT", "1h", 500);
+        List<Candle> initialCandles = candleRepository.findLastCandles(selectedSymbol, "1h", 500);
 
         if (!initialCandles.isEmpty()) {
-            // Reverte a ordem porque o TradingView exige do mais velho para o mais novo
             Collections.reverse(initialCandles);
 
             chart.setHistoricalData(initialCandles);
 
-            // Pega o candle mais recente para o painel superior
             Candle last = initialCandles.get(initialCandles.size() - 1);
             updateMetrics(last, MarketRegime.SIDEWAYS, Collections.emptyList());
         }
@@ -136,12 +157,14 @@ public class DashboardView extends VerticalLayout {
     protected void onAttach(AttachEvent attachEvent) {
         UI ui = attachEvent.getUI();
 
-        // A forma oficial no Vaadin 25 de forçar o Lumo Dark globalmente na tag <html>
         ui.getPage().executeJs("document.documentElement.setAttribute('theme', 'dark');");
 
         broadcasterListener = tick -> ui.access(() -> {
+            // Only process ticks for the currently selected symbol
+            if (!tick.candle().getSymbol().equalsIgnoreCase(selectedSymbol)) {
+                return;
+            }
             updateMetrics(tick.candle(), tick.regime(), tick.openPositions());
-            // Atualiza o gráfico de forma segura e não bloqueante
             chart.updateLiveTick(tick.candle());
         });
 
@@ -172,15 +195,15 @@ public class DashboardView extends VerticalLayout {
             default -> regimeBadge.addClassNames(LumoUtility.Background.CONTRAST_10, LumoUtility.TextColor.BODY);
         }
 
-        // ---> O DISPARO AO VIVO NO GRÁFICO <---
+        // Regime change marker on chart
         if (this.currentRegime != null && this.currentRegime != regime) {
             chart.addLiveMarker(candle.getTime(), "Regime: " + regime.name(), "#3b82f6", "aboveBar", "circle");
         }
         this.currentRegime = regime;
 
-        // Setup Floating PnL & Position states
+        // Position & Floating PnL
         if (positions != null && !positions.isEmpty()) {
-            Position active = positions.get(0); // Assuming one anti-martingale trade active at a time
+            Position active = positions.get(0);
             positionBadge.setText(active.getSide() + " x" + active.getQuantity());
 
             if (active.getSide() == com.jonasdurau.spectator.core.domain.TradeSide.LONG) {

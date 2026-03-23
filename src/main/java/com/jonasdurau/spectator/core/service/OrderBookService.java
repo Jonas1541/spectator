@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class OrderBookService {
@@ -15,30 +17,27 @@ public class OrderBookService {
 
     public record PriceLevel(double price, double quantity) {}
 
-    // Atomic references to allow lock-free reads from the strategy threads while the WebSocket thread updates them
-    private volatile List<PriceLevel> bestBids = new ArrayList<>();
-    private volatile List<PriceLevel> bestAsks = new ArrayList<>();
+    private final Map<String, List<PriceLevel>> bidsBySymbol = new ConcurrentHashMap<>();
+    private final Map<String, List<PriceLevel>> asksBySymbol = new ConcurrentHashMap<>();
 
-    public void updateOrderBook(List<PriceLevel> newBids, List<PriceLevel> newAsks) {
-        this.bestBids = new ArrayList<>(newBids);
-        this.bestAsks = new ArrayList<>(newAsks);
+    public void updateOrderBook(String symbol, List<PriceLevel> newBids, List<PriceLevel> newAsks) {
+        this.bidsBySymbol.put(symbol, new ArrayList<>(newBids));
+        this.asksBySymbol.put(symbol, new ArrayList<>(newAsks));
     }
 
     /**
      * Calculates the Volume Weighted Average Price (VWAP) if we send a Market Order of the given quantity.
-     * Throws an Exception if the depth is insufficient or execution would slip beyond acceptable levels natively.
      */
-    public double calculateExpectedFillPrice(TradeSide side, double targetQuantity) throws IllegalStateException {
-        List<PriceLevel> levels = side == TradeSide.LONG ? bestAsks : bestBids;
+    public double calculateExpectedFillPrice(String symbol, TradeSide side, double targetQuantity) throws IllegalStateException {
+        List<PriceLevel> levels = side == TradeSide.LONG ? asksBySymbol.get(symbol) : bidsBySymbol.get(symbol);
 
         if (levels == null || levels.isEmpty()) {
-            throw new IllegalStateException("Order Book memory is empty. Awaiting WebSocket stream...");
+            throw new IllegalStateException("Order Book memory is empty for " + symbol + ". Awaiting WebSocket stream...");
         }
 
         double remainingQuantity = targetQuantity;
         double totalCost = 0.0;
         
-        // Loop through the best available levels (Asks for Long/Buy, Bids for Short/Sell)
         for (PriceLevel level : levels) {
             double fillQty = Math.min(level.quantity(), remainingQuantity);
             totalCost += (level.price() * fillQty);
@@ -50,7 +49,7 @@ public class OrderBookService {
         }
 
         if (remainingQuantity > 0) {
-            log.warn("Not enough volume in top 5 levels to fill {} units. Remaining {}", targetQuantity, remainingQuantity);
+            log.warn("Not enough volume in top 5 levels to fill {} units for {}. Remaining {}", targetQuantity, symbol, remainingQuantity);
             throw new IllegalStateException("Insufficient liquidity in the partial order book to absorb the market order.");
         }
 
@@ -58,11 +57,12 @@ public class OrderBookService {
     }
 
     /**
-     * Obtains the absolute best top-of-book price for comparison without execution volumes.
+     * Obtains the absolute best top-of-book price for a specific symbol.
      */
-    public double getBestAvailablePrice(TradeSide side) {
-        List<PriceLevel> levels = side == TradeSide.LONG ? bestAsks : bestBids;
+    public double getBestAvailablePrice(String symbol, TradeSide side) {
+        List<PriceLevel> levels = side == TradeSide.LONG ? asksBySymbol.get(symbol) : bidsBySymbol.get(symbol);
         if (levels == null || levels.isEmpty()) return 0.0;
         return levels.get(0).price();
     }
 }
+

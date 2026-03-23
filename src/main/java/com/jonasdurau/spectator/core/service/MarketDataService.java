@@ -10,9 +10,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jonasdurau.spectator.ui.broadcaster.MarketDataBroadcaster;
 import com.jonasdurau.spectator.ui.broadcaster.MarketTick;
 import com.jonasdurau.spectator.integration.binance.BinanceDepthWebSocketClient;
+import com.jonasdurau.spectator.integration.binance.BinanceAggTradeWebSocketClient;
+import com.jonasdurau.spectator.integration.binance.BinanceMarkPriceWebSocketClient;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -26,8 +29,9 @@ public class MarketDataService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
 
-    // Como o Spectator é focado em Bitcoin, vamos deixar isso fixo por enquanto.
-    private static final String TARGET_SYMBOL = "BTCUSDT";
+    @Value("${spectator.symbols}")
+    private String symbolsConfig;
+
     private final CandleRepository candleRepository;
     private final BinanceRestClient restClient;
     private final ObjectMapper objectMapper;
@@ -36,6 +40,7 @@ public class MarketDataService {
     private final PositionManagerService positionManagerService;
     private final StrategyEngineService strategyEngineService;
     private final OrderBookService orderBookService;
+    private final OrderFlowService orderFlowService;
 
     public MarketDataService(CandleRepository candleRepository,
             BinanceRestClient restClient,
@@ -44,7 +49,8 @@ public class MarketDataService {
             MarketDataBroadcaster broadcaster,
             PositionManagerService positionManagerService,
             StrategyEngineService strategyEngineService,
-            OrderBookService orderBookService) {
+            OrderBookService orderBookService,
+            OrderFlowService orderFlowService) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
         this.objectMapper = objectMapper;
@@ -53,73 +59,73 @@ public class MarketDataService {
         this.positionManagerService = positionManagerService;
         this.strategyEngineService = strategyEngineService;
         this.orderBookService = orderBookService;
+        this.orderFlowService = orderFlowService;
     }
 
-    /**
-     * Este método é acionado automaticamente pelo Spring assim que a
-     * aplicação termina de subir e a porta 8080 está pronta.
-     */
     @EventListener(ApplicationReadyEvent.class)
     public void startSync() {
-        log.info("Spectator Engine Starting... Initializing Market Data Sync.");
+        String[] symbols = symbolsConfig.split(",");
+        log.info("Spectator Engine Starting... Initializing Multi-Asset Sync for {} symbols: {}", symbols.length, symbolsConfig);
 
-        // 1. Carga Inicial (Seed) via REST
-        seedHistoricalData("1h");
-        seedHistoricalData("4h");
+        for (String symbol : symbols) {
+            String s = symbol.trim().toUpperCase();
+            log.info("--- Bootstrapping symbol: {} ---", s);
 
-        // 2. Conecta no WebSocket para atualizações em tempo real
-        startRealtimeStream("1h");
-        startRealtimeStream("4h");
-        
-        // 3. Conecta no WebSocket de Order Book (Depth 5 Níveis)
-        new BinanceDepthWebSocketClient(objectMapper, orderBookService).connect(TARGET_SYMBOL);
-    }
+            // 1. Carga Inicial (Seed) via REST
+            seedHistoricalData(s, "1h");
+            seedHistoricalData(s, "4h");
 
-    private void seedHistoricalData(String timeframe) {
-        Candle lastCandle = candleRepository.findTopBySymbolAndTimeframeOrderByTimeDesc(TARGET_SYMBOL, timeframe);
+            // 2. Conecta no WebSocket para atualizações em tempo real
+            startRealtimeStream(s, "1h");
+            startRealtimeStream(s, "4h");
 
-        if (lastCandle == null) {
-            log.info("Database is empty for {} ({}). Fetching initial 1000 candles via REST...", TARGET_SYMBOL, timeframe);
-            List<Candle> history = restClient.fetchHistoricalCandles(TARGET_SYMBOL, timeframe, 1000);
-            // Usando nosso upsert otimizado para salvar a carga inicial
-            history.forEach(candleRepository::upsert);
-            log.info("Successfully saved {} historical candles to TimescaleDB.", history.size());
-        } else {
-            log.info("Database contains data for {}. Last candle time: {}", timeframe, lastCandle.getTime());
-            fillGap(timeframe, lastCandle.getTime());
+            // 3. Conecta no WebSocket de Order Book (Depth 5 Níveis)
+            new BinanceDepthWebSocketClient(objectMapper, orderBookService).connect(s);
+
+            // 4. Conecta nos WebSockets de Order Flow (AggTrades e MarkPrice)
+            new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService).connect(s);
+            new BinanceMarkPriceWebSocketClient(objectMapper, orderFlowService).connect(s);
         }
     }
 
-    private void fillGap(String timeframe, Instant lastCandleTime) {
-        log.info("Checking for missing candles since {}...", lastCandleTime);
+    private void seedHistoricalData(String symbol, String timeframe) {
+        Candle lastCandle = candleRepository.findTopBySymbolAndTimeframeOrderByTimeDesc(symbol, timeframe);
+
+        if (lastCandle == null) {
+            log.info("Database is empty for {} ({}). Fetching initial 1000 candles via REST...", symbol, timeframe);
+            List<Candle> history = restClient.fetchHistoricalCandles(symbol, timeframe, 1000);
+            history.forEach(candleRepository::upsert);
+            log.info("Successfully saved {} historical candles for {} to TimescaleDB.", history.size(), symbol);
+        } else {
+            log.info("Database contains data for {} ({}). Last candle time: {}", symbol, timeframe, lastCandle.getTime());
+            fillGap(symbol, timeframe, lastCandle.getTime());
+        }
+    }
+
+    private void fillGap(String symbol, String timeframe, Instant lastCandleTime) {
+        log.info("Checking for missing candles for {} since {}...", symbol, lastCandleTime);
         Instant currentTime = lastCandleTime;
         Instant now = Instant.now();
         int totalFetched = 0;
 
-        // Loop para paginar gaps que sejam maiores que 1000 candles
         while (currentTime.isBefore(now)) {
-            List<Candle> batch = restClient.fetchHistoricalCandles(TARGET_SYMBOL, timeframe, 1000, currentTime);
+            List<Candle> batch = restClient.fetchHistoricalCandles(symbol, timeframe, 1000, currentTime);
 
             if (batch.isEmpty()) {
                 break;
             }
 
-            // Salva o lote usando o upsert nativo (seguro para overlaps)
             batch.forEach(candleRepository::upsert);
             totalFetched += batch.size();
 
             Instant lastFetchedTime = batch.get(batch.size() - 1).getTime();
 
-            // Se a API retornou apenas o próprio candle de início (sem velas novas), saímos
-            // do loop
             if (lastFetchedTime.equals(currentTime) && batch.size() == 1) {
                 break;
             }
 
             currentTime = lastFetchedTime;
 
-            // Pausa de 100ms para evitar banimento (Rate Limit) da Binance caso o loop rode
-            // muitas vezes
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
@@ -127,54 +133,44 @@ public class MarketDataService {
             }
         }
 
-        // Se totalFetched > 1 é porque baixamos mais coisas além do candle de overlap
         if (totalFetched > 1) {
-            log.info("Gap filled. Fetched and synced {} new/updated candles.", totalFetched);
+            log.info("Gap filled for {}. Fetched and synced {} new/updated candles.", symbol, totalFetched);
         } else {
-            log.info("Database is already up to date.");
+            log.info("Database is already up to date for {}.", symbol);
         }
     }
 
-    private void startRealtimeStream(String timeframe) {
-        log.info("Opening WebSocket stream for {} timeframe...", timeframe);
+    private void startRealtimeStream(String symbol, String timeframe) {
+        log.info("Opening WebSocket stream for {} ({})...", symbol, timeframe);
 
         new BinanceWebSocketClient(objectMapper, incomingCandle -> {
-            // 1. Salva o tick atual no banco
             candleRepository.upsert(incomingCandle);
 
             if ("1h".equals(timeframe)) {
-                // 2. Busca histórico do 1H para as Estratégias
-                List<Candle> recent1h = candleRepository.findLastCandles(TARGET_SYMBOL, "1h", 250);
+                List<Candle> recent1h = candleRepository.findLastCandles(symbol, "1h", 250);
                 Collections.reverse(recent1h);
 
-                // 3. Busca histórico do 4H para o Regime Macro
-                List<Candle> recent4h = candleRepository.findLastCandles(TARGET_SYMBOL, "4h", 250);
+                List<Candle> recent4h = candleRepository.findLastCandles(symbol, "4h", 250);
                 Collections.reverse(recent4h);
 
-                // 4. Analisa o regime de mercado macro
                 MarketRegime currentRegime = MarketRegime.SIDEWAYS;
                 if (recent4h.size() > 50) {
                     currentRegime = regimeAnalyzerService.analyze(recent4h);
                 }
 
-            log.info("Tick: {} | Price: {} | 4H Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
-                    currentRegime);
+                log.info("Tick: {} | Price: {} | 4H Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
+                        currentRegime);
 
-            // 5. Avalia posições ativas para SL/TP
-            positionManagerService.evaluateLiveTick(TARGET_SYMBOL, incomingCandle.getClose());
+                positionManagerService.evaluateLiveTick(symbol, incomingCandle.getClose(), currentRegime);
+                strategyEngineService.processTick(symbol, incomingCandle.getClose(), currentRegime, recent1h);
 
-            // 6. Strategy processing repassando os candles de 1h puros
-            strategyEngineService.processTick(TARGET_SYMBOL, incomingCandle.getClose(), currentRegime, recent1h);
+                List<com.jonasdurau.spectator.core.domain.Position> openPositions = positionManagerService
+                        .getOpenPositions(symbol);
 
-            // 7. Get open positions to stream to the UI
-            List<com.jonasdurau.spectator.core.domain.Position> openPositions = positionManagerService
-                    .getOpenPositions(TARGET_SYMBOL);
-
-                // Dispara a atualização para qualquer tela do Vaadin que estiver aberta
                 broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime, openPositions));
             } else {
-                log.info("Saved 4H tick: {} | Price: {}", incomingCandle.getSymbol(), incomingCandle.getClose());
+                log.info("Saved {} 4H tick: {} | Price: {}", symbol, incomingCandle.getSymbol(), incomingCandle.getClose());
             }
-        }).connect(TARGET_SYMBOL, timeframe);
+        }).connect(symbol, timeframe);
     }
 }

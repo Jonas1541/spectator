@@ -2,10 +2,10 @@ package com.jonasdurau.spectator.integration.binance.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record BinanceDepthEvent(
-        @JsonProperty("b") List<List<String>> bids,
-        @JsonProperty("a") List<List<String>> asks
+public record BinanceAggTradeEvent(
+        @JsonProperty("p") String price,
+        @JsonProperty("q") String quantity,
+        @JsonProperty("m") boolean isBuyerMaker
 ) {}

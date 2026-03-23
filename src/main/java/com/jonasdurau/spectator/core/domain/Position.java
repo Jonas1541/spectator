@@ -26,6 +26,9 @@ public class Position {
     @Column(nullable = false)
     private String symbol;
 
+    @Column(name = "strategy_name")
+    private String strategyName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TradeSide side;
@@ -37,6 +40,15 @@ public class Position {
     private Double takeProfit;
     private Double breakevenMultiplier;
     private Double trailingMultiplier;
+
+    @Column(name = "tp1_price")
+    private Double tp1Price;
+
+    @Column(name = "tp1_quantity")
+    private Double tp1Quantity;
+
+    @Column(name = "tp1_triggered")
+    private boolean tp1Triggered = false;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -57,10 +69,11 @@ public class Position {
     public Position() {
     }
 
-    public Position(String symbol, TradeSide side, double entryPrice, double quantity, Double stopLoss,
+    public Position(String symbol, String strategyName, TradeSide side, double entryPrice, double quantity, Double stopLoss,
             Double takeProfit) {
         this.id = UUID.randomUUID();
         this.symbol = symbol;
+        this.strategyName = strategyName;
         this.side = side;
         this.entryPrice = entryPrice;
         this.quantity = quantity;
@@ -88,16 +101,25 @@ public class Position {
         updatedAt = Instant.now();
     }
 
-    // Floating PnL helper
+    // Floating PnL helper - Now simulates Binance USDT-M Futures Taker Fees (0.05% entry + 0.05% exit)
     public double calculateFloatingPnl(double currentPrice) {
         if (status == PositionStatus.CLOSED) {
             return realizedPnl != null ? realizedPnl : 0.0;
         }
 
+        double notionalEntry = entryPrice * quantity;
+        double notionalExit = currentPrice * quantity;
+        
+        // Phase 14: Passive Executions (Maker Orders)
+        // Entry is always Maker Limit (0.02%), Exit is typically Taker Market/Stop (0.05%)
+        double makerEntryFee = 0.0002;
+        double takerExitFee = 0.0005;
+        double simulatedFees = (notionalEntry * makerEntryFee) + (notionalExit * takerExitFee);
+
         if (side == TradeSide.LONG) {
-            return (currentPrice - entryPrice) * quantity;
+            return (notionalExit - notionalEntry) - simulatedFees;
         } else {
-            return (entryPrice - currentPrice) * quantity;
+            return (notionalEntry - notionalExit) - simulatedFees;
         }
     }
 
@@ -127,6 +149,14 @@ public class Position {
 
     public String getSymbol() {
         return symbol;
+    }
+
+    public String getStrategyName() {
+        return strategyName;
+    }
+
+    public void setStrategyName(String strategyName) {
+        this.strategyName = strategyName;
     }
 
     public TradeSide getSide() {
@@ -175,6 +205,34 @@ public class Position {
 
     public void setTrailingMultiplier(Double trailingMultiplier) {
         this.trailingMultiplier = trailingMultiplier;
+    }
+
+    public Double getTp1Price() {
+        return tp1Price;
+    }
+
+    public void setTp1Price(Double tp1Price) {
+        this.tp1Price = tp1Price;
+    }
+
+    public Double getTp1Quantity() {
+        return tp1Quantity;
+    }
+
+    public void setTp1Quantity(Double tp1Quantity) {
+        this.tp1Quantity = tp1Quantity;
+    }
+
+    public boolean isTp1Triggered() {
+        return tp1Triggered;
+    }
+
+    public void setTp1Triggered(boolean tp1Triggered) {
+        this.tp1Triggered = tp1Triggered;
+    }
+
+    public void setQuantity(double quantity) {
+        this.quantity = quantity;
     }
 
     public PositionStatus getStatus() {

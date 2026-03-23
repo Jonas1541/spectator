@@ -2,6 +2,7 @@ package com.jonasdurau.spectator.core.strategy;
 
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
+import com.jonasdurau.spectator.core.domain.OrderFlowContext;
 import com.jonasdurau.spectator.core.domain.TradeSide;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,10 @@ import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.OpenPriceIndicator;
 import org.ta4j.core.indicators.helpers.VolumeIndicator;
+import org.ta4j.core.indicators.helpers.HighestValueIndicator;
+import org.ta4j.core.indicators.helpers.LowestValueIndicator;
+import org.ta4j.core.indicators.helpers.HighPriceIndicator;
+import org.ta4j.core.indicators.helpers.LowPriceIndicator;
 
 import java.util.List;
 
@@ -23,9 +28,6 @@ public class PullbackTrendStrategy implements TradingStrategy {
     private static final Logger log = LoggerFactory.getLogger(PullbackTrendStrategy.class);
 
     private static final int EMA_50 = 50;
-    
-    // Distância máxima permitida até a EMA 50 para considerar o "toque" (1%)
-    private static final double MAX_PULLBACK_DISTANCE_PCT = 0.01; 
 
     public PullbackTrendStrategy() {}
 
@@ -35,7 +37,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
     }
 
     @Override
-    public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice) {
+    public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice, OrderFlowContext orderFlowContext) {
         if (current4hRegime != MarketRegime.TRENDING_UP && current4hRegime != MarketRegime.TRENDING_DOWN) {
             return TradeSignal.ignore();
         }
@@ -75,9 +77,19 @@ public class PullbackTrendStrategy implements TradingStrategy {
         double currentVolume = volume.getValue(endIndex).doubleValue();
         double avgVolume = volumeSma.getValue(endIndex).doubleValue();
         double currentAtr = atr.getValue(endIndex).doubleValue();
+        
+        // Structural Targets Pivot Calculation (20 Candles Swing High/Lows)
+        HighPriceIndicator highPrice = new HighPriceIndicator(series);
+        LowPriceIndicator lowPrice = new LowPriceIndicator(series);
+        HighestValueIndicator highestHigh20 = new HighestValueIndicator(highPrice, 20);
+        LowestValueIndicator lowestLow20 = new LowestValueIndicator(lowPrice, 20);
+        double recentHigh = highestHigh20.getValue(endIndex).doubleValue();
+        double recentLow = lowestLow20.getValue(endIndex).doubleValue();
 
-        double distanceToEma = Math.abs((cPrice - e50) / e50);
-        boolean nearEma = distanceToEma <= MAX_PULLBACK_DISTANCE_PCT;
+        // Phase 13.3: Dynamic Pullback Distance tied to Absolute Volatility instead of 1% fixed mark
+        double distanceToEma = Math.abs(cPrice - e50);
+        double maxDistance = currentAtr * 0.5;
+        boolean nearEma = distanceToEma <= maxDistance;
         
         // Regra de Ouro: Só operamos se o volume atual for maior que a média!
         boolean strongVolume = currentVolume > avgVolume;
@@ -86,25 +98,65 @@ public class PullbackTrendStrategy implements TradingStrategy {
             boolean bullishCandle = cPrice > oPrice;
 
             if (nearEma && bullishCandle && strongVolume && isMacdBullish) { 
+                if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() < 0) {
+                    log.info("[{}] Trigger ignored! Order Flow is heavily bearish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
+                    return TradeSignal.ignore();
+                }
+                if (orderFlowContext != null && orderFlowContext.currentFundingRate() > 0.0005) {
+                    log.info("[{}] Trigger ignored! Retail is over-leveraged Long (Funding: {}).", getName(), orderFlowContext.currentFundingRate());
+                    return TradeSignal.ignore();
+                }
+                
                 log.info("[{}] Trigger detected! Pullback near 50-EMA with STRONG VOLUME & MACD Bullish.", getName());
                 
                 // Stop Loss Dinâmico 3.0x o ATR abaixo da entrada
                 double stopLoss = cPrice - (currentAtr * 3.0);
-                double target = cPrice + ((cPrice - stopLoss) * 5.0);
+                
+                // Phase 13.4: Structural Take Profit on recent Swing High
+                double target = recentHigh;
+                double risk = cPrice - stopLoss;
+                double reward = target - cPrice;
+                
+                if (risk <= 0 || (reward / risk) < 1.5) {
+                    log.info("[{}] Trigger ignored! Structural target {} offers poor R:R ({}).", getName(), target, String.format("%.2f", reward / risk));
+                    return TradeSignal.ignore();
+                }
 
-                return TradeSignal.enter(TradeSide.LONG, stopLoss, target, 2.0, null, 0.30);
+                // Phase 16: Partial Take Profit at midpoint (50% of lot)
+                double tp1 = cPrice + (risk * 1.5); // TP1 at 1.5R
+                return TradeSignal.enterWithPartialTp(TradeSide.LONG, stopLoss, target, 2.0, null, 0.30, tp1, 0.5);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             boolean bearishCandle = cPrice < oPrice;
             
             if (nearEma && bearishCandle && strongVolume && isMacdBearish) { 
+                if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() > 0) {
+                    log.info("[{}] Trigger ignored! Order Flow is heavily bullish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
+                    return TradeSignal.ignore();
+                }
+                if (orderFlowContext != null && orderFlowContext.currentFundingRate() < -0.0005) {
+                    log.info("[{}] Trigger ignored! Retail is over-leveraged Short (Funding: {}).", getName(), orderFlowContext.currentFundingRate());
+                    return TradeSignal.ignore();
+                }
+                
                 log.info("[{}] Trigger detected! Rejection near 50-EMA with STRONG VOLUME & MACD Bearish.", getName());
                 
-                // Stop Loss Dinâmico 3.0x o ATR acima da entrada
+                // Stop Loss Dinâmico 1.5x o ATR acima da entrada
                 double stopLoss = cPrice + (currentAtr * 1.5);
-                double target = cPrice - ((stopLoss - cPrice) * 5.0);
                 
-                return TradeSignal.enter(TradeSide.SHORT, stopLoss, target, 2.0, null, 0.30);
+                // Phase 13.4: Structural Take Profit on recent Swing Low
+                double target = recentLow;
+                double risk = stopLoss - cPrice;
+                double reward = cPrice - target;
+                
+                if (risk <= 0 || (reward / risk) < 1.5) {
+                    log.info("[{}] Trigger ignored! Structural target {} offers poor R:R ({}).", getName(), target, String.format("%.2f", reward / risk));
+                    return TradeSignal.ignore();
+                }
+                
+                // Phase 16: Partial Take Profit at midpoint (50% of lot)
+                double tp1 = cPrice - (risk * 1.5); // TP1 at 1.5R
+                return TradeSignal.enterWithPartialTp(TradeSide.SHORT, stopLoss, target, 2.0, null, 0.30, tp1, 0.5);
             }
         }
 

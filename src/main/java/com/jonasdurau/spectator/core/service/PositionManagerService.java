@@ -2,6 +2,7 @@ package com.jonasdurau.spectator.core.service;
 
 import com.jonasdurau.spectator.core.domain.Position;
 import com.jonasdurau.spectator.core.domain.PositionStatus;
+import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.domain.Trade;
 import com.jonasdurau.spectator.core.domain.TradeSide;
 import com.jonasdurau.spectator.core.repository.PositionRepository;
@@ -28,10 +29,10 @@ public class PositionManagerService {
     }
 
     @Transactional
-    public Position openPosition(String symbol, TradeSide side, double entryPrice, double quantity, Double stopLoss,
+    public Position openPosition(String strategyName, String symbol, TradeSide side, double entryPrice, double quantity, Double stopLoss,
             Double takeProfit, Double breakevenMultiplier, Double trailingMultiplier) {
-        log.info("Opening {} position for {} at {} (Qty: {})", side, symbol, entryPrice, quantity);
-        Position position = new Position(symbol, side, entryPrice, quantity, stopLoss, takeProfit);
+        log.info("Opening {} {} position for {} at {} (Qty: {})", strategyName, side, symbol, entryPrice, quantity);
+        Position position = new Position(symbol, strategyName, side, entryPrice, quantity, stopLoss, takeProfit);
 
         Trade trade = new Trade(position, symbol, side, entryPrice, quantity, Instant.now());
         position.setBreakevenMultiplier(breakevenMultiplier);
@@ -61,7 +62,7 @@ public class PositionManagerService {
     }
 
     @Transactional
-    public void evaluateLiveTick(String symbol, double currentPrice) {
+    public void evaluateLiveTick(String symbol, double currentPrice, MarketRegime currentRegime) {
         List<Position> openPositions = positionRepository.findBySymbolAndStatus(symbol, PositionStatus.OPEN);
 
         for (Position position : openPositions) {
@@ -129,6 +130,53 @@ public class PositionManagerService {
                 positionRepository.save(position); // Salva o novo stop no banco
             }
             // ---------------------------------------------------------------
+
+            // --- PHASE 16: PARTIAL TAKE PROFIT (TP1) ---
+            if (!position.isTp1Triggered() && position.getTp1Price() != null && position.getTp1Quantity() != null) {
+                boolean tp1Hit = false;
+                if (position.getSide() == TradeSide.LONG && currentPrice >= position.getTp1Price()) {
+                    tp1Hit = true;
+                } else if (position.getSide() == TradeSide.SHORT && currentPrice <= position.getTp1Price()) {
+                    tp1Hit = true;
+                }
+                
+                if (tp1Hit) {
+                    double partialQty = position.getTp1Quantity();
+                    double remainingQty = position.getQuantity() - partialQty;
+                    
+                    log.info("💰 TP1 HIT! Partially closing {} of {} at {}. Remaining: {}", partialQty, position.getSymbol(), currentPrice, remainingQty);
+                    
+                    // Record the partial exit trade
+                    TradeSide exitSide = position.getSide() == TradeSide.LONG ? TradeSide.SHORT : TradeSide.LONG;
+                    Trade partialTrade = new Trade(position, position.getSymbol(), exitSide, currentPrice, partialQty, Instant.now());
+                    position.addTrade(partialTrade);
+                    tradeRepository.save(partialTrade);
+                    
+                    position.setQuantity(remainingQty);
+                    position.setTp1Triggered(true);
+                    // Move stop to breakeven after partial
+                    position.setStopLoss(position.getEntryPrice());
+                    positionRepository.save(position);
+                    log.info("✅ Stop moved to Breakeven after TP1. New quantity: {}", remainingQty);
+                }
+            }
+
+            // --- PHASE 16: PANIC CLOSE (HMM Regime Shift) ---
+            if (position.getStrategyName() != null && position.getStrategyName().toLowerCase().contains("pullback")) {
+                boolean panicClose = false;
+                if (position.getSide() == TradeSide.LONG && currentRegime != MarketRegime.TRENDING_UP) {
+                    panicClose = true;
+                } else if (position.getSide() == TradeSide.SHORT && currentRegime != MarketRegime.TRENDING_DOWN) {
+                    panicClose = true;
+                }
+                
+                if (panicClose) {
+                    log.warn("🚨 PANIC CLOSE! Regime shifted to {} while holding {} {}. Closing at {}.", 
+                             currentRegime, position.getSide(), position.getSymbol(), currentPrice);
+                    closePosition(position, currentPrice);
+                    continue;
+                }
+            }
 
             // Checking Stop Loss
             if (position.getStopLoss() != null) {

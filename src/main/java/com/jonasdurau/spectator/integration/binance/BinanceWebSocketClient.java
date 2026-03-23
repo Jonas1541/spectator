@@ -17,7 +17,7 @@ import java.util.function.Consumer;
 public class BinanceWebSocketClient extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceWebSocketClient.class);
-    private static final String BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/";
+    private static final String BINANCE_WS_URL = "wss://fstream.binance.com/ws/";
 
     private final ObjectMapper objectMapper;
     private final Consumer<Candle> candleUpdateListener;

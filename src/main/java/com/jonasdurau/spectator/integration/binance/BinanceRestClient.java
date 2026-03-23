@@ -33,7 +33,7 @@ public class BinanceRestClient {
         // A Binance retorna uma lista de listas genéricas
         List<List<Object>> response = restClient.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/api/v3/klines")
+                        .path("/fapi/v1/klines")
                         .queryParam("symbol", symbol)
                         .queryParam("interval", interval)
                         .queryParam("limit", limit)
@@ -58,7 +58,7 @@ public class BinanceRestClient {
 
         List<List<Object>> response = restClient.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/api/v3/klines")
+                        .path("/fapi/v1/klines")
                         .queryParam("symbol", symbol)
                         .queryParam("interval", interval)
                         .queryParam("limit", limit)

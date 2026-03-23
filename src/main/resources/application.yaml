@@ -41,3 +41,7 @@ spring:
 # Configurações do Vaadin
 vaadin:
   launch-browser: true
+
+# Configurações do Spectator
+spectator:
+  symbols: BTCUSDT,ETHUSDT,SOLUSDT
