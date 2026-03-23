@@ -87,18 +87,18 @@ public class PullbackTrendStrategy implements TradingStrategy {
         double recentHigh = highestHigh20.getValue(endIndex).doubleValue();
         double recentLow = lowestLow20.getValue(endIndex).doubleValue();
 
-        // Phase 13.3: Dynamic Pullback Distance tied to Absolute Volatility instead of 1% fixed mark
-        double distanceToEma = Math.abs(cPrice - e50);
-        double maxDistance = currentAtr * 0.5;
-        boolean nearEma = distanceToEma <= maxDistance;
+        double currentLow = lowPrice.getValue(endIndex).doubleValue();
+        double currentHigh = highPrice.getValue(endIndex).doubleValue();
         
         // Regra de Ouro: Só operamos se o volume atual for maior que a média!
         boolean strongVolume = currentVolume > avgVolume;
 
         if (current4hRegime == MarketRegime.TRENDING_UP) {
-            boolean bullishCandle = cPrice > oPrice;
+            // === LONG: Pin Bar na EMA 50 (Vela Única) ===
+            // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa vela de alta
+            boolean longPinBar = currentLow < e50 && cPrice > e50 && cPrice > oPrice;
 
-            if (nearEma && bullishCandle && strongVolume && isMacdBullish) { 
+            if (longPinBar && strongVolume && isMacdBullish) { 
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() < 0) {
                     log.info("[{}] Trigger ignored! Order Flow is heavily bearish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
@@ -108,7 +108,8 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                log.info("[{}] Trigger detected! Pullback near 50-EMA with STRONG VOLUME & MACD Bullish.", getName());
+                log.info("[{}] PIN BAR LONG! Low ({}) swept below EMA-50 ({}), close ({}) recovered above. MACD Bullish.", 
+                         getName(), String.format("%.2f", currentLow), String.format("%.2f", e50), String.format("%.2f", cPrice));
                 
                 // Stop Loss Dinâmico 3.0x o ATR abaixo da entrada
                 double stopLoss = cPrice - (currentAtr * 3.0);
@@ -118,7 +119,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 double risk = cPrice - stopLoss;
                 double reward = target - cPrice;
                 
-                if (risk <= 0 || (reward / risk) < 1.5) {
+                if (risk <= 0 || (reward / risk) < 1.2) {
                     log.info("[{}] Trigger ignored! Structural target {} offers poor R:R ({}).", getName(), target, String.format("%.2f", reward / risk));
                     return TradeSignal.ignore();
                 }
@@ -128,9 +129,11 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 return TradeSignal.enterWithPartialTp(TradeSide.LONG, stopLoss, target, 2.0, null, 0.30, tp1, 0.5);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
-            boolean bearishCandle = cPrice < oPrice;
+            // === SHORT: Pin Bar na EMA 50 (Vela Única) ===
+            // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa vela de baixa
+            boolean shortPinBar = currentHigh > e50 && cPrice < e50 && cPrice < oPrice;
             
-            if (nearEma && bearishCandle && strongVolume && isMacdBearish) { 
+            if (shortPinBar && strongVolume && isMacdBearish) { 
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() > 0) {
                     log.info("[{}] Trigger ignored! Order Flow is heavily bullish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
@@ -140,7 +143,8 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                log.info("[{}] Trigger detected! Rejection near 50-EMA with STRONG VOLUME & MACD Bearish.", getName());
+                log.info("[{}] PIN BAR SHORT! High ({}) swept above EMA-50 ({}), close ({}) recovered below. MACD Bearish.", 
+                         getName(), String.format("%.2f", currentHigh), String.format("%.2f", e50), String.format("%.2f", cPrice));
                 
                 // Stop Loss Dinâmico 1.5x o ATR acima da entrada
                 double stopLoss = cPrice + (currentAtr * 1.5);
@@ -150,7 +154,7 @@ public class PullbackTrendStrategy implements TradingStrategy {
                 double risk = stopLoss - cPrice;
                 double reward = cPrice - target;
                 
-                if (risk <= 0 || (reward / risk) < 1.5) {
+                if (risk <= 0 || (reward / risk) < 1.2) {
                     log.info("[{}] Trigger ignored! Structural target {} offers poor R:R ({}).", getName(), target, String.format("%.2f", reward / risk));
                     return TradeSignal.ignore();
                 }
