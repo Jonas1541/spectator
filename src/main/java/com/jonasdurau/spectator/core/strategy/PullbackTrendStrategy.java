@@ -8,16 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.indicators.ATRIndicator;
-
 import org.ta4j.core.indicators.averages.EMAIndicator;
-import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.OpenPriceIndicator;
-import org.ta4j.core.indicators.helpers.VolumeIndicator;
-
-import org.ta4j.core.indicators.helpers.HighestValueIndicator;
-import org.ta4j.core.indicators.helpers.LowestValueIndicator;
 import org.ta4j.core.indicators.helpers.HighPriceIndicator;
 import org.ta4j.core.indicators.helpers.LowPriceIndicator;
 
@@ -53,43 +46,21 @@ public class PullbackTrendStrategy implements TradingStrategy {
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
         OpenPriceIndicator openPrice = new OpenPriceIndicator(series);
         EMAIndicator ema50 = new EMAIndicator(closePrice, EMA_50);
-        
-        // NOVO: Filtro de Volume Institucional
-        VolumeIndicator volume = new VolumeIndicator(series);
-        SMAIndicator volumeSma = new SMAIndicator(volume, 20); // Média de volume das últimas 20 horas
-        
-        // NOVO: ATR para o Stop Loss Dinâmico
-        ATRIndicator atr = new ATRIndicator(series, 14);
-
-
+        HighPriceIndicator highPrice = new HighPriceIndicator(series);
+        LowPriceIndicator lowPrice = new LowPriceIndicator(series);
         
         double cPrice = closePrice.getValue(endIndex).doubleValue();
         double oPrice = openPrice.getValue(endIndex).doubleValue();
         double e50 = ema50.getValue(endIndex).doubleValue();
-        double currentVolume = volume.getValue(endIndex).doubleValue();
-        double avgVolume = volumeSma.getValue(endIndex).doubleValue();
-        double currentAtr = atr.getValue(endIndex).doubleValue();
-        
-        // Structural Targets Pivot Calculation (20 Candles Swing High/Lows)
-        HighPriceIndicator highPrice = new HighPriceIndicator(series);
-        LowPriceIndicator lowPrice = new LowPriceIndicator(series);
-        HighestValueIndicator highestHigh20 = new HighestValueIndicator(highPrice, 20);
-        LowestValueIndicator lowestLow20 = new LowestValueIndicator(lowPrice, 20);
-        double recentHigh = highestHigh20.getValue(endIndex).doubleValue();
-        double recentLow = lowestLow20.getValue(endIndex).doubleValue();
-
         double currentLow = lowPrice.getValue(endIndex).doubleValue();
         double currentHigh = highPrice.getValue(endIndex).doubleValue();
-        
-        // Regra de Ouro: Só operamos se o volume atual for maior que a média!
-        boolean strongVolume = currentVolume > avgVolume;
 
         if (current4hRegime == MarketRegime.TRENDING_UP) {
             // === LONG: Pin Bar na EMA 50 (Vela Única) ===
             // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa vela de alta
             boolean longPinBar = currentLow < e50 && cPrice > e50 && cPrice > oPrice;
 
-            if (longPinBar && strongVolume) { 
+            if (longPinBar) { 
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() < 0) {
                     log.info("[{}] Trigger ignored! Order Flow is heavily bearish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
@@ -99,30 +70,24 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                log.info("[{}] PIN BAR LONG! Low ({}) swept below EMA-50 ({}), close ({}) recovered above.", 
-                         getName(), String.format("%.2f", currentLow), String.format("%.2f", e50), String.format("%.2f", cPrice));
-                
-                // Stop Loss Dinâmico 3.0x o ATR abaixo da entrada
-                double stopLoss = cPrice - (currentAtr * 3.0);
-                
-                // Phase 13.4: Structural Take Profit on recent Swing High
-                double target = recentHigh;
+                // Stop Loss no fundo exato do Pin Bar (pavio)
+                double stopLoss = lowPrice.getValue(endIndex).doubleValue();
                 double risk = cPrice - stopLoss;
-                double reward = target - cPrice;
+                // Take Profit projetado a 1.5x o risco
+                double takeProfit = cPrice + (risk * 1.5);
                 
-                if (risk <= 0 || (reward / risk) < 1.2) {
-                    log.info("[{}] Trigger ignored! Structural target {} offers poor R:R ({}).", getName(), target, String.format("%.2f", reward / risk));
-                    return TradeSignal.ignore();
-                }
+                log.info("[{}] PIN BAR LONG! Low ({}) swept below EMA-50 ({}), close ({}) recovered above. SL: {}, TP: {}", 
+                         getName(), String.format("%.2f", currentLow), String.format("%.2f", e50), String.format("%.2f", cPrice),
+                         String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
 
-                return TradeSignal.enter(TradeSide.LONG, stopLoss, target, null, null, 0.30);
+                return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, null, 0.30);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             // === SHORT: Pin Bar na EMA 50 (Vela Única) ===
             // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa vela de baixa
             boolean shortPinBar = currentHigh > e50 && cPrice < e50 && cPrice < oPrice;
             
-            if (shortPinBar && strongVolume) { 
+            if (shortPinBar) { 
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() > 0) {
                     log.info("[{}] Trigger ignored! Order Flow is heavily bullish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
@@ -132,23 +97,17 @@ public class PullbackTrendStrategy implements TradingStrategy {
                     return TradeSignal.ignore();
                 }
                 
-                log.info("[{}] PIN BAR SHORT! High ({}) swept above EMA-50 ({}), close ({}) recovered below.", 
-                         getName(), String.format("%.2f", currentHigh), String.format("%.2f", e50), String.format("%.2f", cPrice));
-                
-                // Stop Loss Dinâmico 1.5x o ATR acima da entrada
-                double stopLoss = cPrice + (currentAtr * 1.5);
-                
-                // Phase 13.4: Structural Take Profit on recent Swing Low
-                double target = recentLow;
+                // Stop Loss no topo exato do Pin Bar (pavio)
+                double stopLoss = highPrice.getValue(endIndex).doubleValue();
                 double risk = stopLoss - cPrice;
-                double reward = cPrice - target;
+                // Take Profit projetado a 1.5x o risco
+                double takeProfit = cPrice - (risk * 1.5);
                 
-                if (risk <= 0 || (reward / risk) < 1.2) {
-                    log.info("[{}] Trigger ignored! Structural target {} offers poor R:R ({}).", getName(), target, String.format("%.2f", reward / risk));
-                    return TradeSignal.ignore();
-                }
+                log.info("[{}] PIN BAR SHORT! High ({}) swept above EMA-50 ({}), close ({}) recovered below. SL: {}, TP: {}", 
+                         getName(), String.format("%.2f", currentHigh), String.format("%.2f", e50), String.format("%.2f", cPrice),
+                         String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
                 
-                return TradeSignal.enter(TradeSide.SHORT, stopLoss, target, null, null, 0.30);
+                return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, null, 0.30);
             }
         }
 

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.indicators.RSIIndicator;
 import org.ta4j.core.indicators.averages.SMAIndicator;
-import org.ta4j.core.indicators.ATRIndicator;
+
 import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
@@ -18,7 +18,7 @@ import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.HighPriceIndicator;
 import org.ta4j.core.indicators.helpers.LowPriceIndicator;
 import org.ta4j.core.indicators.helpers.OpenPriceIndicator;
-import org.ta4j.core.indicators.helpers.VolumeIndicator;
+
 import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 
 import java.util.List;
@@ -35,9 +35,7 @@ public class MeanReversionStrategy implements TradingStrategy {
     private static final int BB_PERIOD = 20;
     private static final double BB_MULTIPLIER = 2.0;
     
-    private static final int ATR_PERIOD = 14;
-    // 2. STOP MAIS CURTO (Se o elástico arrebentar, saímos rápido)
-    private static final double ATR_SL_MULTIPLIER = 2.0; 
+
 
     public MeanReversionStrategy() {}
 
@@ -73,20 +71,10 @@ public class MeanReversionStrategy implements TradingStrategy {
         BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(bbMiddle, stdDev, series.numFactory().numOf(BB_MULTIPLIER));
         BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(bbMiddle, stdDev, series.numFactory().numOf(BB_MULTIPLIER));
 
-        ATRIndicator atr = new ATRIndicator(series, ATR_PERIOD);
-        double currentAtr = atr.getValue(endIndex).doubleValue();
-        
-        VolumeIndicator volume = new VolumeIndicator(series);
-        SMAIndicator volumeSma = new SMAIndicator(volume, 20); 
-        
         double cPrice = closePrice.getValue(endIndex).doubleValue();
         double oPrice = openPrice.getValue(endIndex).doubleValue();
         double currentLow = lowPrice.getValue(endIndex).doubleValue();
         double currentHigh = highPrice.getValue(endIndex).doubleValue();
-        double currentVolume = volume.getValue(endIndex).doubleValue();
-        double avgVolume = volumeSma.getValue(endIndex).doubleValue();
-
-        boolean strongVolume = currentVolume > avgVolume;
 
         double currentBbLower = bbLower.getValue(endIndex).doubleValue();
         double currentBbUpper = bbUpper.getValue(endIndex).doubleValue();
@@ -96,46 +84,36 @@ public class MeanReversionStrategy implements TradingStrategy {
         // A mínima tocou/caiu ABAIXO da banda inferior, mas o close recuperou ACIMA dela, numa vela de alta
         boolean longWickSweep = currentLow < currentBbLower && cPrice > currentBbLower && cPrice > oPrice;
 
-        if (longWickSweep && currentRsi < RSI_OVERSOLD && strongVolume) {
-            log.info("[{}] PIN BAR LONG! Low ({}) swept BB Lower ({}), close ({}) recovered above. RSI: {}.", 
-                     getName(), String.format("%.2f", currentLow), String.format("%.2f", currentBbLower), String.format("%.2f", cPrice), String.format("%.1f", currentRsi));
+        if (longWickSweep && currentRsi < RSI_OVERSOLD) {
+            // Stop Loss no fundo exato do Pin Bar (pavio)
+            double stopLoss = lowPrice.getValue(endIndex).doubleValue();
+            double risk = cPrice - stopLoss;
+            // Take Profit projetado a 1.5x o risco
+            double takeProfit = cPrice + (risk * 1.5);
             
-            double target = currentBbMiddle;
-            double stopLoss = cPrice - (currentAtr * ATR_SL_MULTIPLIER);
-            
-            double riskDistance = cPrice - stopLoss;
-            double rewardDistance = target - cPrice;
+            log.info("[{}] PIN BAR LONG! Low ({}) swept BB Lower ({}), close ({}) recovered above. RSI: {}. SL: {}, TP: {}", 
+                     getName(), String.format("%.2f", currentLow), String.format("%.2f", currentBbLower), String.format("%.2f", cPrice), 
+                     String.format("%.1f", currentRsi), String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
 
-            if (riskDistance <= 0 || rewardDistance < (riskDistance * 0.5)) {
-                log.warn("[{}] Discarding - Reward (${}) is less than 0.5x the Risk (${}).", 
-                         getName(), String.format("%.2f", rewardDistance), String.format("%.2f", riskDistance));
-                return TradeSignal.ignore();
-            }
-
-            return TradeSignal.enter(TradeSide.LONG, stopLoss, target, null, null, 0.60);
+            return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, null, 0.60);
         }
 
         // === SHORT: Pin Bar na Banda Superior (Vela Única) ===
         // A máxima tocou/subiu ACIMA da banda superior, mas o close retraiu ABAIXO dela, numa vela de baixa
         boolean shortWickSweep = currentHigh > currentBbUpper && cPrice < currentBbUpper && cPrice < oPrice;
 
-        if (shortWickSweep && currentRsi > RSI_OVERBOUGHT && strongVolume) {
-            log.info("[{}] PIN BAR SHORT! High ({}) swept BB Upper ({}), close ({}) recovered below. RSI: {}.", 
-                     getName(), String.format("%.2f", currentHigh), String.format("%.2f", currentBbUpper), String.format("%.2f", cPrice), String.format("%.1f", currentRsi));
+        if (shortWickSweep && currentRsi > RSI_OVERBOUGHT) {
+            // Stop Loss no topo exato do Pin Bar (pavio)
+            double stopLoss = highPrice.getValue(endIndex).doubleValue();
+            double risk = stopLoss - cPrice;
+            // Take Profit projetado a 1.5x o risco
+            double takeProfit = cPrice - (risk * 1.5);
             
-            double target = currentBbMiddle;
-            double stopLoss = cPrice + (currentAtr * ATR_SL_MULTIPLIER);
-            
-            double riskDistance = stopLoss - cPrice;
-            double rewardDistance = cPrice - target;
+            log.info("[{}] PIN BAR SHORT! High ({}) swept BB Upper ({}), close ({}) recovered below. RSI: {}. SL: {}, TP: {}", 
+                     getName(), String.format("%.2f", currentHigh), String.format("%.2f", currentBbUpper), String.format("%.2f", cPrice), 
+                     String.format("%.1f", currentRsi), String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
 
-            if (riskDistance <= 0 || rewardDistance < (riskDistance * 0.5)) {
-                log.warn("[{}] Discarding - Reward (${}) is less than 0.5x the Risk (${}).", 
-                         getName(), String.format("%.2f", rewardDistance), String.format("%.2f", riskDistance));
-                return TradeSignal.ignore();
-            }
-
-            return TradeSignal.enter(TradeSide.SHORT, stopLoss, target, null, null, 0.60);
+            return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, null, 0.60);
         }
 
         return TradeSignal.ignore();
