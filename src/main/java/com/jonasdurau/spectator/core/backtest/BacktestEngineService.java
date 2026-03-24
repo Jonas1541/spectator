@@ -298,7 +298,7 @@ public class BacktestEngineService {
                 int dynWins = (currentStrategyName != null) ? strategyWins.getOrDefault(currentStrategyName, 0) : 0;
                 int dynLosses = (currentStrategyName != null) ? strategyLosses.getOrDefault(currentStrategyName, 0) : 0;
                 int totalClosed = dynWins + dynLosses;
-                double dynamicWinProb = 0.40;
+                double dynamicWinProb = 0.50;
                 if (totalClosed >= 5) {
                     dynamicWinProb = (double) dynWins / totalClosed;
                 }
