@@ -389,6 +389,49 @@ public class BacktestEngineService {
         }
 
         double globalNetProfit = globalCapital - initialCapital;
+
+        // --- PHASE 7: Global Portfolio Metrics ---
+        List<BacktestTrade> globalTradeLog = new ArrayList<>();
+        int globalWinningTrades = 0;
+        int globalLosingTrades = 0;
+        double globalGrossProfit = 0.0;
+        double globalGrossLoss = 0.0;
+        List<Double> globalTradeReturns = new ArrayList<>();
+
+        for (String symbol : history1hMap.keySet()) {
+            SymbolAccumulator acc = accumulators.get(symbol);
+            globalTradeLog.addAll(tradeLogMap.get(symbol));
+            globalWinningTrades += acc.winningTrades;
+            globalLosingTrades += acc.losingTrades;
+            globalGrossProfit += acc.grossProfit;
+            globalGrossLoss += acc.grossLoss;
+            globalTradeReturns.addAll(acc.tradeReturns);
+        }
+
+        globalTradeLog.sort(Comparator.comparing(BacktestTrade::time));
+
+        int globalTotalTrades = globalWinningTrades + globalLosingTrades;
+        double globalWinRate = globalTotalTrades > 0 ? ((double) globalWinningTrades / globalTotalTrades) : 0.0;
+        double globalLossRate = 1.0 - globalWinRate;
+
+        double globalAvgWin = globalWinningTrades > 0 ? (globalGrossProfit / globalWinningTrades) : 0.0;
+        double globalAvgLoss = globalLosingTrades > 0 ? (globalGrossLoss / globalLosingTrades) : 0.0;
+        double globalExpectancy = (globalWinRate * globalAvgWin) - (globalLossRate * globalAvgLoss);
+
+        double globalSharpeRatio = 0.0;
+        if (globalTotalTrades > 1) {
+            double meanReturn = globalTradeReturns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            double variance = globalTradeReturns.stream()
+                    .mapToDouble(r -> Math.pow(r - meanReturn, 2))
+                    .sum() / (globalTotalTrades - 1);
+            double stdDev = Math.sqrt(variance);
+            if (stdDev > 0) {
+                globalSharpeRatio = (meanReturn / stdDev) * Math.sqrt(globalTotalTrades);
+            }
+        }
+
+        MonteCarloReport globalMcReport = monteCarloSimulator.runSimulation(globalTradeLog, initialCapital);
+
         log.info("Portfolio Backtest '{}' complete. Global Net Profit: ${}", executionName, String.format("%.2f", globalNetProfit));
 
         return new PortfolioBacktestReport(
@@ -397,6 +440,9 @@ public class BacktestEngineService {
                 globalCapital,
                 globalNetProfit,
                 globalMaxDrawdown,
+                globalExpectancy,
+                globalSharpeRatio,
+                globalMcReport,
                 symbolReports
         );
     }

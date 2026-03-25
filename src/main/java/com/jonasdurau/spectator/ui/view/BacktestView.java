@@ -85,6 +85,7 @@ public class BacktestView extends VerticalLayout {
     private final Span sharpeLabel = new Span("-");
     private final Span riskOfRuinLabel = new Span("-");
     private final Span medianDdLabel = new Span("-");
+    private final Span finalCapitalLabel = new Span("-");
     
     // Walk-Forward Data Grid
     private final Grid<BacktestReport> wfaGrid = new Grid<>(BacktestReport.class, false);
@@ -210,6 +211,7 @@ public class BacktestView extends VerticalLayout {
         board.add(createMetric("Sharpe Ratio", sharpeLabel));
         board.add(createMetric("Risk of Ruin", riskOfRuinLabel));
         board.add(createMetric("MC Median DD", medianDdLabel));
+        board.add(createMetric("Final Capital", finalCapitalLabel));
 
         add(board);
 
@@ -433,6 +435,10 @@ public class BacktestView extends VerticalLayout {
         // --- MEDIAN DRAWDOWN ---
         medianDdLabel.setText(String.format(java.util.Locale.US, "%.2f%%", mc.medianMaxDrawdown()));
         medianDdLabel.getStyle().set("color", colorRed);
+
+        // --- FINAL CAPITAL ---
+        finalCapitalLabel.setText(String.format(java.util.Locale.US, "$%.2f", report.finalCapital()));
+        finalCapitalLabel.getStyle().set("color", report.finalCapital() >= report.initialCapital() ? colorGreen : colorRed);
     }
 
     private void updatePortfolioResultsBoard(PortfolioBacktestReport portfolio) {
@@ -470,15 +476,38 @@ public class BacktestView extends VerticalLayout {
             drawdownLabel.getStyle().set("color", colorRed);
         }
 
-        // For multi-symbol, show aggregated expectancy & sharpe as "-" (not meaningful to combine)
-        expectancyLabel.setText("Portfolio");
-        expectancyLabel.getStyle().set("color", colorYellow);
-        sharpeLabel.setText("Portfolio");
-        sharpeLabel.getStyle().set("color", colorYellow);
-        riskOfRuinLabel.setText("-");
-        riskOfRuinLabel.getStyle().set("color", colorYellow);
-        medianDdLabel.setText("-");
-        medianDdLabel.getStyle().set("color", colorYellow);
+        // --- GLOBAL EXPECTANCY ---
+        expectancyLabel.setText(String.format(java.util.Locale.US, "$%.2f", portfolio.globalExpectancy()));
+        expectancyLabel.getStyle().set("color", portfolio.globalExpectancy() > 0 ? colorGreen : colorRed);
+
+        // --- GLOBAL SHARPE RATIO ---
+        sharpeLabel.setText(String.format(java.util.Locale.US, "%.2f", portfolio.globalSharpeRatio()));
+        if (portfolio.globalSharpeRatio() >= 1.0) {
+            sharpeLabel.getStyle().set("color", colorGreen);
+        } else if (portfolio.globalSharpeRatio() > 0.0) {
+            sharpeLabel.getStyle().set("color", colorYellow);
+        } else {
+            sharpeLabel.getStyle().set("color", colorRed);
+        }
+
+        // --- GLOBAL RISK OF RUIN (Monte Carlo) ---
+        MonteCarloReport mc = portfolio.globalMcReport();
+        riskOfRuinLabel.setText(String.format(java.util.Locale.US, "%.2f%%", mc.riskOfRuin()));
+        if (mc.riskOfRuin() < 1.0) {
+            riskOfRuinLabel.getStyle().set("color", colorGreen);
+        } else if (mc.riskOfRuin() < 5.0) {
+            riskOfRuinLabel.getStyle().set("color", colorYellow);
+        } else {
+            riskOfRuinLabel.getStyle().set("color", colorRed);
+        }
+
+        // --- GLOBAL MEDIAN DRAWDOWN ---
+        medianDdLabel.setText(String.format(java.util.Locale.US, "%.2f%%", mc.medianMaxDrawdown()));
+        medianDdLabel.getStyle().set("color", colorRed);
+
+        // --- FINAL CAPITAL ---
+        finalCapitalLabel.setText(String.format(java.util.Locale.US, "$%.2f", portfolio.globalFinalCapital()));
+        finalCapitalLabel.getStyle().set("color", portfolio.globalFinalCapital() >= portfolio.globalInitialCapital() ? colorGreen : colorRed);
     }
 
     private void triggerCsvDownload() {
