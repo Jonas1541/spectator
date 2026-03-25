@@ -24,9 +24,9 @@ import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 import java.util.List;
 
 @Component
-public class MeanReversionStrategy implements TradingStrategy {
+public class BollingerPinBarStrategy implements TradingStrategy {
 
-    private static final Logger log = LoggerFactory.getLogger(MeanReversionStrategy.class);
+    private static final Logger log = LoggerFactory.getLogger(BollingerPinBarStrategy.class);
 
     private static final int RSI_PERIOD = 14;
     private static final double RSI_OVERSOLD = 25.0;
@@ -37,11 +37,11 @@ public class MeanReversionStrategy implements TradingStrategy {
     
 
 
-    public MeanReversionStrategy() {}
+    public BollingerPinBarStrategy() {}
 
     @Override
     public String getName() {
-        return "1H BB Mean Reversion";
+        return "1H BB Pin Bar Reversion";
     }
 
     @Override
@@ -78,7 +78,6 @@ public class MeanReversionStrategy implements TradingStrategy {
 
         double currentBbLower = bbLower.getValue(endIndex).doubleValue();
         double currentBbUpper = bbUpper.getValue(endIndex).doubleValue();
-        double currentBbMiddle = bbMiddle.getValue(endIndex).doubleValue();
 
         // === LONG: Pin Bar na Banda Inferior (Vela Única) ===
         // A mínima tocou/caiu ABAIXO da banda inferior, mas o close recuperou ACIMA dela, numa vela de alta

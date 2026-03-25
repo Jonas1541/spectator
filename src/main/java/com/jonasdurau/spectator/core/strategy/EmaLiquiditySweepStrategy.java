@@ -17,17 +17,17 @@ import org.ta4j.core.indicators.helpers.LowPriceIndicator;
 import java.util.List;
 
 @Component
-public class PullbackTrendStrategy implements TradingStrategy {
+public class EmaLiquiditySweepStrategy implements TradingStrategy {
 
-    private static final Logger log = LoggerFactory.getLogger(PullbackTrendStrategy.class);
+    private static final Logger log = LoggerFactory.getLogger(EmaLiquiditySweepStrategy.class);
 
     private static final int EMA_50 = 50;
 
-    public PullbackTrendStrategy() {}
+    public EmaLiquiditySweepStrategy() {}
 
     @Override
     public String getName() {
-        return "1H 50-EMA Pullback Engine";
+        return "1H 50-EMA Liquidity Sweep";
     }
 
     @Override
