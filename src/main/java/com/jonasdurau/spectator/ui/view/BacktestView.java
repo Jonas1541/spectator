@@ -4,6 +4,7 @@ import com.jonasdurau.spectator.core.backtest.BacktestCsvExporter;
 import com.jonasdurau.spectator.core.backtest.BacktestEngineService;
 import com.jonasdurau.spectator.core.backtest.BacktestReport;
 import com.jonasdurau.spectator.core.backtest.MonteCarloReport;
+import com.jonasdurau.spectator.core.backtest.PortfolioBacktestReport;
 import com.jonasdurau.spectator.core.backtest.WalkForwardAnalyzerService;
 import com.jonasdurau.spectator.core.backtest.WalkForwardReport;
 import com.jonasdurau.spectator.core.domain.Candle;
@@ -17,10 +18,12 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.checkbox.Checkbox;
 import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.combobox.MultiSelectComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.H1;
+import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
@@ -43,6 +46,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Route("backtest")
 @PageTitle("Spectator | Backtest Studio")
@@ -62,13 +66,13 @@ public class BacktestView extends VerticalLayout {
     private final DatePicker endDatePicker = new DatePicker("End Date");
     private final NumberField capitalField = new NumberField("Starting Capital (USDT)");
     private final ComboBox<StrategyOption> strategySelector = new ComboBox<>("Strategy Mode");
-    private final ComboBox<String> symbolSelector = new ComboBox<>("Symbol");
+    private final MultiSelectComboBox<String> symbolSelector = new MultiSelectComboBox<>("Symbols");
     private final Button runButton = new Button("Sync & Run Backtest");
     private final Checkbox walkForwardToggle = new Checkbox("Walk-Forward Analysis (5 Slices)");
     private final Button exportCsvButton = new Button("📊 Export CSV");
     private final Anchor downloadAnchor = new Anchor();
     
-    // State for CSV export
+    // State for CSV export (uses first symbol's data)
     private List<Candle> lastChartData;
     private BacktestReport lastReport;
     
@@ -86,7 +90,8 @@ public class BacktestView extends VerticalLayout {
     private final Grid<BacktestReport> wfaGrid = new Grid<>(BacktestReport.class, false);
     private final Span consistencyLabel = new Span("");
 
-    private final TradingViewChart chart = new TradingViewChart();
+    // Multi-Symbol Charts Container
+    private final VerticalLayout chartsContainer = new VerticalLayout();
 
     public BacktestView(HistoricalSyncService syncService, 
                         BacktestEngineService backtestEngine, 
@@ -100,11 +105,14 @@ public class BacktestView extends VerticalLayout {
         this.availableStrategies = availableStrategies;
         this.walkForwardAnalyzer = walkForwardAnalyzer;
 
-        // Parse configured symbols for the selector
-        String[] symbols = symbolsConfig.split(",");
-        symbolSelector.setItems(java.util.Arrays.stream(symbols).map(s -> s.trim().toUpperCase()).toList());
-        symbolSelector.setValue(symbols[0].trim().toUpperCase());
-        symbolSelector.setWidth("140px");
+        // Parse configured symbols for the multi-select
+        List<String> symbols = java.util.Arrays.stream(symbolsConfig.split(","))
+                .map(s -> s.trim().toUpperCase())
+                .toList();
+        symbolSelector.setItems(symbols);
+        symbolSelector.select(symbols.get(0)); // Pre-select first symbol
+        symbolSelector.setWidth("250px");
+        symbolSelector.setPlaceholder("Select symbols...");
 
         setSizeFull();
         setPadding(true);
@@ -113,7 +121,10 @@ public class BacktestView extends VerticalLayout {
         createControlPanel();
         createResultsBoard();
         
-        add(chart);
+        chartsContainer.setPadding(false);
+        chartsContainer.setSpacing(true);
+        chartsContainer.setWidthFull();
+        add(chartsContainer);
     }
 
     @Override
@@ -230,8 +241,10 @@ public class BacktestView extends VerticalLayout {
     }
 
     private void executeBacktest() {
-        if (startDatePicker.getValue() == null || endDatePicker.getValue() == null || strategySelector.getValue() == null || capitalField.getValue() == null) {
-            Notification.show("Please select all fields including Capital.", 3000, Notification.Position.TOP_CENTER);
+        Set<String> selectedSymbols = symbolSelector.getSelectedItems();
+        
+        if (selectedSymbols.isEmpty() || startDatePicker.getValue() == null || endDatePicker.getValue() == null || strategySelector.getValue() == null || capitalField.getValue() == null) {
+            Notification.show("Please select at least one symbol and fill all fields.", 3000, Notification.Position.TOP_CENTER);
             return;
         }
 
@@ -242,28 +255,30 @@ public class BacktestView extends VerticalLayout {
         Instant end = endDatePicker.getValue().atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
         StrategyOption selectedOption = strategySelector.getValue();
         double initialCapital = capitalField.getValue();
-        String symbol = symbolSelector.getValue();
+        List<String> symbols = new ArrayList<>(selectedSymbols);
 
         UI ui = UI.getCurrent();
         Thread backgroundThread = new Thread(() -> {
             try {
-                syncService.syncPeriod(symbol, "4h", start, end);
-                syncService.syncPeriod(symbol, "1h", start, end);
+                // Sync all selected symbols
+                for (String symbol : symbols) {
+                    syncService.syncPeriod(symbol, "4h", start, end);
+                    syncService.syncPeriod(symbol, "1h", start, end);
+                }
 
                 if (walkForwardToggle.getValue()) {
-                    // MODO WALK FORWARD (5 Fatias)
+                    // WALK-FORWARD MODE — uses first symbol only (as before)
+                    String primarySymbol = symbols.get(0);
                     
-                    // 1. Roda o backtest COMPLETO para preencher o painel superior e o gráfico com tudo!
                     BacktestReport overallReport = backtestEngine.runBacktest(
-                            selectedOption.name() + " (Overall)", selectedOption.strategies(), symbol, start, end, initialCapital
+                            selectedOption.name() + " (Overall)", selectedOption.strategies(), primarySymbol, start, end, initialCapital
                     );
 
-                    // 2. Roda o fatiador para preencher a tabela de consistência
                     WalkForwardReport wfaReport = walkForwardAnalyzer.runAnalysis(
-                            selectedOption.name(), selectedOption.strategies(), symbol, start, end, initialCapital, 5
+                            selectedOption.name(), selectedOption.strategies(), primarySymbol, start, end, initialCapital, 5
                     );
                     
-                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
+                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(primarySymbol, "1h", start, end);
 
                     ui.access(() -> {
                         wfaGrid.setItems(wfaReport.sliceReports());
@@ -273,9 +288,8 @@ public class BacktestView extends VerticalLayout {
                                 wfaReport.consistencyScore(), wfaReport.profitableSlices(), wfaReport.totalSlices()));
                         consistencyLabel.setVisible(true);
                         
-                        // CORREÇÃO APLICADA: Agora usamos o overallReport!
                         updateResultsBoard(overallReport);
-                        chart.setBacktestData(chartData, overallReport.tradeLog(), overallReport.regimeChanges());
+                        renderChartsForSymbols(java.util.Map.of(primarySymbol, overallReport), start, end);
                         
                         lastChartData = chartData;
                         lastReport = overallReport;
@@ -287,26 +301,42 @@ public class BacktestView extends VerticalLayout {
                     });
 
                 } else {
-                    // STANDARD MODE
-                    BacktestReport report = backtestEngine.runBacktest(
-                            selectedOption.name(), selectedOption.strategies(), symbol, start, end, initialCapital
+                    // PORTFOLIO MODE — multi-symbol
+                    PortfolioBacktestReport portfolio = backtestEngine.runPortfolioBacktest(
+                            selectedOption.name(), selectedOption.strategies(), symbols, start, end, initialCapital
                     );
-                    List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
+
+                    // Load chart data for all symbols
+                    java.util.Map<String, List<Candle>> chartDataMap = new java.util.LinkedHashMap<>();
+                    for (String symbol : symbols) {
+                        List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
+                        chartDataMap.put(symbol, chartData);
+                    }
 
                     ui.access(() -> {
                         wfaGrid.setVisible(false);
                         consistencyLabel.setVisible(false);
                         
-                        updateResultsBoard(report);
-                        chart.setBacktestData(chartData, report.tradeLog(), report.regimeChanges());
+                        // Use first symbol's report for the top-level metrics board,
+                        // or aggregate if multiple symbols
+                        if (portfolio.symbolReports().size() == 1) {
+                            BacktestReport singleReport = portfolio.symbolReports().values().iterator().next();
+                            updateResultsBoard(singleReport);
+                        } else {
+                            updatePortfolioResultsBoard(portfolio);
+                        }
                         
-                        lastChartData = chartData;
-                        lastReport = report;
+                        renderChartsForSymbols(portfolio.symbolReports(), start, end);
+                        
+                        // CSV export uses first symbol
+                        String firstSymbol = symbols.get(0);
+                        lastChartData = chartDataMap.get(firstSymbol);
+                        lastReport = portfolio.symbolReports().get(firstSymbol);
                         exportCsvButton.setEnabled(true);
                         
                         runButton.setEnabled(true);
                         runButton.setText("Sync & Run Backtest");
-                        Notification.show("Backtest completed successfully!", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                        Notification.show("Portfolio Backtest completed! (" + symbols.size() + " symbols)", 3000, Notification.Position.TOP_END).addThemeVariants(NotificationVariant.LUMO_SUCCESS);
                     });
                 }
 
@@ -320,6 +350,35 @@ public class BacktestView extends VerticalLayout {
         });
         
         backgroundThread.start();
+    }
+
+    private void renderChartsForSymbols(java.util.Map<String, BacktestReport> symbolReports, Instant start, Instant end) {
+        chartsContainer.removeAll();
+        
+        for (java.util.Map.Entry<String, BacktestReport> entry : symbolReports.entrySet()) {
+            String symbol = entry.getKey();
+            BacktestReport report = entry.getValue();
+            
+            List<Candle> chartData = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
+            
+            // Symbol header with key metrics
+            String pnlStr = String.format(java.util.Locale.US, "%+.2f", report.netProfit());
+            String headerText = String.format("%s — %d trades | WR: %.1f%% | PnL: $%s", 
+                    symbol, report.totalTrades(), report.winRate(), pnlStr);
+            H3 symbolHeader = new H3(headerText);
+            symbolHeader.getStyle().set("color", report.netProfit() >= 0 ? "#26a69a" : "#ef5350");
+            symbolHeader.addClassNames(LumoUtility.Margin.Bottom.NONE, LumoUtility.Margin.Top.MEDIUM);
+            
+            TradingViewChart chart = new TradingViewChart();
+            chart.setHeight("450px");
+            
+            chartsContainer.add(symbolHeader, chart);
+            
+            // Defer setBacktestData to the next event loop so onAttach fires first
+            UI.getCurrent().access(() -> {
+                chart.setBacktestData(chartData, report.tradeLog(), report.regimeChanges());
+            });
+        }
     }
 
     private void updateResultsBoard(BacktestReport report) {
@@ -376,6 +435,52 @@ public class BacktestView extends VerticalLayout {
         medianDdLabel.getStyle().set("color", colorRed);
     }
 
+    private void updatePortfolioResultsBoard(PortfolioBacktestReport portfolio) {
+        String colorGreen = "#26a69a";
+        String colorRed = "#ef5350";
+        String colorYellow = "#f5cb5c";
+
+        // Aggregate metrics across all symbols
+        int totalTrades = 0;
+        int totalWins = 0;
+        int totalLosses = 0;
+        double totalNetProfit = portfolio.globalNetProfit();
+
+        for (BacktestReport r : portfolio.symbolReports().values()) {
+            totalTrades += r.totalTrades();
+            totalWins += r.winningTrades();
+            totalLosses += r.losingTrades();
+        }
+
+        double winRate = totalTrades > 0 ? ((double) totalWins / totalTrades) * 100 : 0.0;
+
+        winRateLabel.setText(String.format(java.util.Locale.US, "%.2f%%", winRate));
+        tradesLabel.setText(String.format("%d", totalTrades));
+
+        String pnlStr = String.format(java.util.Locale.US, "$%.2f", totalNetProfit);
+        pnlLabel.setText(pnlStr);
+        pnlLabel.getStyle().set("color", totalNetProfit >= 0 ? colorGreen : colorRed);
+
+        drawdownLabel.setText(String.format(java.util.Locale.US, "%.2f%%", portfolio.globalMaxDrawdown()));
+        if (portfolio.globalMaxDrawdown() < 10.0) {
+            drawdownLabel.getStyle().set("color", colorGreen);
+        } else if (portfolio.globalMaxDrawdown() <= 20.0) {
+            drawdownLabel.getStyle().set("color", colorYellow);
+        } else {
+            drawdownLabel.getStyle().set("color", colorRed);
+        }
+
+        // For multi-symbol, show aggregated expectancy & sharpe as "-" (not meaningful to combine)
+        expectancyLabel.setText("Portfolio");
+        expectancyLabel.getStyle().set("color", colorYellow);
+        sharpeLabel.setText("Portfolio");
+        sharpeLabel.getStyle().set("color", colorYellow);
+        riskOfRuinLabel.setText("-");
+        riskOfRuinLabel.getStyle().set("color", colorYellow);
+        medianDdLabel.setText("-");
+        medianDdLabel.getStyle().set("color", colorYellow);
+    }
+
     private void triggerCsvDownload() {
         if (lastChartData == null || lastReport == null) {
             Notification.show("Run a backtest first.", 3000, Notification.Position.TOP_CENTER);
@@ -387,8 +492,7 @@ public class BacktestView extends VerticalLayout {
 
         String startStr = startDatePicker.getValue() != null ? startDatePicker.getValue().toString() : "start";
         String endStr = endDatePicker.getValue() != null ? endDatePicker.getValue().toString() : "end";
-        String symbol = symbolSelector.getValue() != null ? symbolSelector.getValue() : "UNKNOWN";
-        String filename = String.format("backtest_%s_%s_%s.csv", symbol, startStr, endStr);
+        String filename = String.format("backtest_portfolio_%s_%s.csv", startStr, endStr);
 
         StreamResource resource = new StreamResource(filename, () -> new ByteArrayInputStream(csvBytes));
         resource.setContentType("text/csv");

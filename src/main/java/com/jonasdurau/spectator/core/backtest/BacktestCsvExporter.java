@@ -1,7 +1,6 @@
 package com.jonasdurau.spectator.core.backtest;
 
 import com.jonasdurau.spectator.core.domain.Candle;
-import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.domain.RegimeChangeEvent;
 import com.jonasdurau.spectator.core.domain.TradeSide;
 
