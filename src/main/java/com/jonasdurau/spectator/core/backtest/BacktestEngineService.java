@@ -241,6 +241,7 @@ public class BacktestEngineService {
             }
             double currentExposurePct = (globalCapital > 0) ? totalMarginInUse / globalCapital : 1.0;
 
+
             // === STEP 3: Evaluate ENTRIES for all symbols ===
             for (String symbol : history1hMap.keySet()) {
                 SymbolPositionState pos = positionStates.get(symbol);
@@ -276,6 +277,17 @@ public class BacktestEngineService {
                 }
 
                 if (signal.fire()) {
+                    // Correlation Lock dinâmico: calcula o estado exato da carteira NESTE momento
+                    long currentOpenLongs = positionStates.values().stream().filter(s -> s.inPosition && s.currentSide == TradeSide.LONG).count();
+                    long currentOpenShorts = positionStates.values().stream().filter(s -> s.inPosition && s.currentSide == TradeSide.SHORT).count();
+
+                    if (signal.side() == TradeSide.LONG && currentOpenLongs > 0) {
+                        continue; // Correlation Lock: Já existe uma posição LONG aberta no portfólio
+                    }
+                    if (signal.side() == TradeSide.SHORT && currentOpenShorts > 0) {
+                        continue; // Correlation Lock: Já existe uma posição SHORT aberta no portfólio
+                    }
+
                     pos.inPosition = true;
                     pos.currentSide = signal.side();
                     pos.entryPrice = currentCandle.getClose();
