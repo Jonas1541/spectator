@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.ta4j.core.BarSeries;
+import org.ta4j.core.indicators.ATRIndicator;
 import org.ta4j.core.indicators.averages.EMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.OpenPriceIndicator;
@@ -23,7 +24,8 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
 
     private static final int EMA_50 = 50;
 
-    public EmaLiquiditySweepStrategy() {}
+    public EmaLiquiditySweepStrategy() {
+    }
 
     @Override
     public String getName() {
@@ -31,7 +33,8 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
     }
 
     @Override
-    public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice, OrderFlowContext orderFlowContext) {
+    public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice,
+            OrderFlowContext orderFlowContext) {
         if (current4hRegime != MarketRegime.TRENDING_UP && current4hRegime != MarketRegime.TRENDING_DOWN) {
             return TradeSignal.ignore();
         }
@@ -40,7 +43,7 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
             return TradeSignal.ignore();
         }
 
-        BarSeries series = Ta4jMapper.toBarSeries(recent1hCandles, "Bitcoin_1H");
+        BarSeries series = Ta4jMapper.toBarSeries(recent1hCandles, "Crypto_1H");
         int endIndex = series.getEndIndex();
 
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
@@ -48,66 +51,94 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
         EMAIndicator ema50 = new EMAIndicator(closePrice, EMA_50);
         HighPriceIndicator highPrice = new HighPriceIndicator(series);
         LowPriceIndicator lowPrice = new LowPriceIndicator(series);
-        
+        ATRIndicator atr = new ATRIndicator(series, 14);
+
         double cPrice = closePrice.getValue(endIndex).doubleValue();
         double oPrice = openPrice.getValue(endIndex).doubleValue();
         double e50 = ema50.getValue(endIndex).doubleValue();
         double currentLow = lowPrice.getValue(endIndex).doubleValue();
         double currentHigh = highPrice.getValue(endIndex).doubleValue();
+        double currentAtr = atr.getValue(endIndex).doubleValue();
 
         if (current4hRegime == MarketRegime.TRENDING_UP) {
             // === LONG: Pin Bar na EMA 50 (Vela Única) ===
-            // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa vela de alta
+            // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa
+            // vela de alta
             boolean longPinBar = currentLow < e50 && cPrice > e50 && cPrice > oPrice;
 
-            if (longPinBar) { 
+            if (longPinBar) {
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() < 0) {
-                    log.info("[{}] Trigger ignored! Order Flow is heavily bearish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
+                    log.info("[{}] Trigger ignored! Order Flow is heavily bearish (CVD: {}).", getName(),
+                            orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
                 }
                 if (orderFlowContext != null && orderFlowContext.currentFundingRate() > 0.0005) {
-                    log.info("[{}] Trigger ignored! Retail is over-leveraged Long (Funding: {}).", getName(), orderFlowContext.currentFundingRate());
+                    log.info("[{}] Trigger ignored! Retail is over-leveraged Long (Funding: {}).", getName(),
+                            orderFlowContext.currentFundingRate());
                     return TradeSignal.ignore();
                 }
-                
+
                 // Stop Loss no fundo exato do Pin Bar (pavio)
                 double stopLoss = lowPrice.getValue(endIndex).doubleValue();
                 double risk = cPrice - stopLoss;
-                // Take Profit projetado a 1.5x o risco
-                double takeProfit = cPrice + (risk * 1.5);
-                
-                log.info("[{}] PIN BAR LONG! Low ({}) swept below EMA-50 ({}), close ({}) recovered above. SL: {}, TP: {}", 
-                         getName(), String.format("%.2f", currentLow), String.format("%.2f", e50), String.format("%.2f", cPrice),
-                         String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
+                if (risk <= 0)
+                    return TradeSignal.ignore();
 
-                return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, null, 0.30);
+                // 1. Removemos o teto de lucro (Alvo inatingível para forçar a saída pelo
+                // Trailing)
+                double takeProfit = cPrice * 10.0;
+
+                // 2. Calculamos o Trailing Stop dinâmico: 2x a volatilidade atual (ATR) da
+                // moeda
+                double trailingMultiplier = (currentAtr * 2.0) / risk;
+
+                // O alvo da parcial (TP1) fica em 1.5x o risco
+                double tp1Price = cPrice + (risk * 1.5);
+                
+                log.info("[{}] PIN BAR LONG (ATR Trailing + Parcial)! SL: {}, TP1: {}, ATR: {}", 
+                         getName(), String.format("%.2f", stopLoss), String.format("%.2f", tp1Price), String.format("%.2f", currentAtr));
+
+                // Usamos o seu método passando o tp1Price e 0.50 (50% da posição) no final
+                return TradeSignal.enterWithPartialTp(TradeSide.LONG, stopLoss, takeProfit, null, trailingMultiplier, null, tp1Price, 0.50);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             // === SHORT: Pin Bar na EMA 50 (Vela Única) ===
-            // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa vela de baixa
+            // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa
+            // vela de baixa
             boolean shortPinBar = currentHigh > e50 && cPrice < e50 && cPrice < oPrice;
-            
-            if (shortPinBar) { 
+
+            if (shortPinBar) {
                 if (orderFlowContext != null && orderFlowContext.cumulativeVolumeDelta() > 0) {
-                    log.info("[{}] Trigger ignored! Order Flow is heavily bullish (CVD: {}).", getName(), orderFlowContext.cumulativeVolumeDelta());
+                    log.info("[{}] Trigger ignored! Order Flow is heavily bullish (CVD: {}).", getName(),
+                            orderFlowContext.cumulativeVolumeDelta());
                     return TradeSignal.ignore();
                 }
                 if (orderFlowContext != null && orderFlowContext.currentFundingRate() < -0.0005) {
-                    log.info("[{}] Trigger ignored! Retail is over-leveraged Short (Funding: {}).", getName(), orderFlowContext.currentFundingRate());
+                    log.info("[{}] Trigger ignored! Retail is over-leveraged Short (Funding: {}).", getName(),
+                            orderFlowContext.currentFundingRate());
                     return TradeSignal.ignore();
                 }
-                
+
                 // Stop Loss no topo exato do Pin Bar (pavio)
                 double stopLoss = highPrice.getValue(endIndex).doubleValue();
                 double risk = stopLoss - cPrice;
-                // Take Profit projetado a 1.5x o risco
-                double takeProfit = cPrice - (risk * 1.5);
+                if (risk <= 0)
+                    return TradeSignal.ignore();
+
+                // Alvo no chão (zero virtual) para forçar o Trailing Stop
+                double takeProfit = 0.0001;
+
+                // Calculamos o Trailing Stop dinâmico: 2x a volatilidade atual (ATR) da moeda
+                double trailingMultiplier = (currentAtr * 2.0) / risk;
+
+                // O alvo da parcial (TP1) fica em 1.5x o risco para baixo
+                double tp1Price = cPrice - (risk * 1.5);
                 
-                log.info("[{}] PIN BAR SHORT! High ({}) swept above EMA-50 ({}), close ({}) recovered below. SL: {}, TP: {}", 
-                         getName(), String.format("%.2f", currentHigh), String.format("%.2f", e50), String.format("%.2f", cPrice),
-                         String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
+                log.info("[{}] PIN BAR SHORT (ATR Trailing + Parcial)! SL: {}, TP1: {}, ATR: {}", 
+                         getName(), String.format("%.2f", stopLoss), String.format("%.2f", tp1Price), String.format("%.2f", currentAtr));
                 
-                return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, null, 0.30);
+                // Usamos o seu método passando o tp1Price e 0.50 (50% da posição) no final
+                return TradeSignal.enterWithPartialTp(TradeSide.SHORT, stopLoss, takeProfit, null, trailingMultiplier, null, tp1Price, 0.50);
             }
         }
 

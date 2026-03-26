@@ -40,7 +40,7 @@ spring:
 
 # Configurações do Vaadin
 vaadin:
-  launch-browser: true
+  launch-browser: false
 
 # Configurações do Spectator
 spectator:
