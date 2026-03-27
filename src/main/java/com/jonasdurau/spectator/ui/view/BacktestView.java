@@ -262,12 +262,6 @@ public class BacktestView extends VerticalLayout {
         UI ui = UI.getCurrent();
         Thread backgroundThread = new Thread(() -> {
             try {
-                // Sync all selected symbols
-                for (String symbol : symbols) {
-                    syncService.syncPeriod(symbol, "4h", start, end);
-                    syncService.syncPeriod(symbol, "1h", start, end);
-                }
-
                 if (walkForwardToggle.getValue()) {
                     // WALK-FORWARD MODE — uses first symbol only (as before)
                     String primarySymbol = symbols.get(0);

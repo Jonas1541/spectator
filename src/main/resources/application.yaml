@@ -45,3 +45,5 @@ vaadin:
 # Configurações do Spectator
 spectator:
   symbols: BTCUSDT,ETHUSDT,SOLUSDT
+  mode:
+    backtest-only: true

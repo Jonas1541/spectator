@@ -3,9 +3,11 @@ package com.jonasdurau.spectator.core.service;
 import com.jonasdurau.spectator.core.domain.TradeSide;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 @Service
+@ConditionalOnProperty(name = "spectator.mode.backtest-only", havingValue = "false", matchIfMissing = true)
 public class PaperTradingExecutionService implements OrderExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(PaperTradingExecutionService.class);

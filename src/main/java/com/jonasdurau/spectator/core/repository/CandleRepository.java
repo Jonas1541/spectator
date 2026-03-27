@@ -36,7 +36,8 @@ public interface CandleRepository extends JpaRepository<Candle, CandleId> {
     /**
      * Conta o número de velas existentes no banco para um dado período.
      */
-    long countBySymbolAndTimeframeAndTimeBetween(String symbol, String timeframe, Instant start, Instant end);
+    @Query(value = "SELECT COUNT(*) FROM market_candles WHERE symbol = :symbol AND timeframe = :timeframe AND time >= :start AND time <= :end", nativeQuery = true)
+    long countBySymbolAndTimeframeAndTimeBetween(@Param("symbol") String symbol, @Param("timeframe") String timeframe, @Param("start") Instant start, @Param("end") Instant end);
 
     /**
      * UPSERT nativo otimizado para PostgreSQL/TimescaleDB.

@@ -5,6 +5,7 @@ import com.jonasdurau.spectator.core.service.OrderFlowService;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceMarkPriceEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -13,6 +14,7 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 @Component
+@ConditionalOnProperty(name = "spectator.mode.backtest-only", havingValue = "false", matchIfMissing = true)
 public class BinanceMarkPriceWebSocketClient extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceMarkPriceWebSocketClient.class);

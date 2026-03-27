@@ -10,11 +10,13 @@ import com.jonasdurau.spectator.core.strategy.TradeSignal;
 import com.jonasdurau.spectator.core.strategy.TradingStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
+@ConditionalOnProperty(name = "spectator.mode.backtest-only", havingValue = "false", matchIfMissing = true)
 public class StrategyEngineService {
 
     private static final Logger log = LoggerFactory.getLogger(StrategyEngineService.class);
