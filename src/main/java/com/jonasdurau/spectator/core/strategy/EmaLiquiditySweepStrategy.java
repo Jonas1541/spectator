@@ -62,8 +62,7 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
 
         if (current4hRegime == MarketRegime.TRENDING_UP) {
             // === LONG: Pin Bar na EMA 50 (Vela Única) ===
-            // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa
-            // vela de alta
+            // A mínima tocou/caiu ABAIXO da EMA 50, mas o close recuperou ACIMA dela, numa vela de alta
             boolean longPinBar = currentLow < e50 && cPrice > e50 && cPrice > oPrice;
 
             if (longPinBar) {
@@ -84,27 +83,19 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
                 if (risk <= 0)
                     return TradeSignal.ignore();
 
-                // 1. Removemos o teto de lucro (Alvo inatingível para forçar a saída pelo
-                // Trailing)
+                // 1. Removemos o teto de lucro (Alvo inatingível para forçar a saída pelo Trailing)
                 double takeProfit = cPrice * 10.0;
 
-                // 2. Calculamos o Trailing Stop dinâmico: 2x a volatilidade atual (ATR) da
-                // moeda
+                // 2. Calculamos o Trailing Stop dinâmico: 2x a volatilidade atual (ATR) da moeda
                 double trailingMultiplier = (currentAtr * 2.0) / risk;
-
-                // O alvo da parcial (TP1) fica em 1.5x o risco
-                double tp1Price = cPrice + (risk * 1.5);
                 
-                log.info("[{}] PIN BAR LONG (ATR Trailing + Parcial)! SL: {}, TP1: {}, ATR: {}", 
-                         getName(), String.format("%.2f", stopLoss), String.format("%.2f", tp1Price), String.format("%.2f", currentAtr));
+                log.info("[{}] PIN BAR LONG (ATR Trailing)! SL: {}, ATR: {}", getName(), String.format("%.2f", stopLoss), String.format("%.2f", currentAtr));
 
-                // Usamos o seu método passando o tp1Price e 0.50 (50% da posição) no final
-                return TradeSignal.enterWithPartialTp(TradeSide.LONG, stopLoss, takeProfit, null, trailingMultiplier, null, tp1Price, 0.50);
+                return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, trailingMultiplier, null);
             }
         } else if (current4hRegime == MarketRegime.TRENDING_DOWN) {
             // === SHORT: Pin Bar na EMA 50 (Vela Única) ===
-            // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa
-            // vela de baixa
+            // A máxima tocou/subiu ACIMA da EMA 50, mas o close retraiu ABAIXO dela, numa vela de baixa
             boolean shortPinBar = currentHigh > e50 && cPrice < e50 && cPrice < oPrice;
 
             if (shortPinBar) {
@@ -130,15 +121,10 @@ public class EmaLiquiditySweepStrategy implements TradingStrategy {
 
                 // Calculamos o Trailing Stop dinâmico: 2x a volatilidade atual (ATR) da moeda
                 double trailingMultiplier = (currentAtr * 2.0) / risk;
+                
+                log.info("[{}] PIN BAR SHORT (ATR Trailing)! SL: {}, ATR: {}", getName(), String.format("%.2f", stopLoss), String.format("%.2f", currentAtr));
 
-                // O alvo da parcial (TP1) fica em 1.5x o risco para baixo
-                double tp1Price = cPrice - (risk * 1.5);
-                
-                log.info("[{}] PIN BAR SHORT (ATR Trailing + Parcial)! SL: {}, TP1: {}, ATR: {}", 
-                         getName(), String.format("%.2f", stopLoss), String.format("%.2f", tp1Price), String.format("%.2f", currentAtr));
-                
-                // Usamos o seu método passando o tp1Price e 0.50 (50% da posição) no final
-                return TradeSignal.enterWithPartialTp(TradeSide.SHORT, stopLoss, takeProfit, null, trailingMultiplier, null, tp1Price, 0.50);
+                return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, trailingMultiplier, null);
             }
         }
 

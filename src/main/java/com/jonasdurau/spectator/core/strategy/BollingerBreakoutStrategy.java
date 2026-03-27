@@ -18,7 +18,7 @@ import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 
 import java.util.List;
 
-//@Component
+@Component
 public class BollingerBreakoutStrategy implements TradingStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(BollingerBreakoutStrategy.class);
