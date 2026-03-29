@@ -93,7 +93,9 @@ public class BinanceRestClient {
         double low = Double.parseDouble(kline.get(3).toString());
         double close = Double.parseDouble(kline.get(4).toString());
         double volume = Double.parseDouble(kline.get(5).toString());
+        double quoteAssetVolume = Double.parseDouble(kline.get(7).toString());
+        double takerBuyBaseAssetVolume = Double.parseDouble(kline.get(9).toString());
 
-        return new Candle(symbol, interval, time, open, high, low, close, volume);
+        return new Candle(symbol, interval, time, open, high, low, close, volume, quoteAssetVolume, takerBuyBaseAssetVolume);
     }
 }

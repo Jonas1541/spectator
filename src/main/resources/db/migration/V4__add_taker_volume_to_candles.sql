@@ -1,0 +1,3 @@
+ALTER TABLE market_candles 
+ADD COLUMN quote_asset_volume DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+ADD COLUMN taker_buy_base_asset_volume DOUBLE PRECISION NOT NULL DEFAULT 0.0;

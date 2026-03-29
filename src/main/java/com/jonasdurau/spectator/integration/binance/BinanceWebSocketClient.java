@@ -12,7 +12,7 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.time.Instant;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
 public class BinanceWebSocketClient extends TextWebSocketHandler {
 
@@ -20,10 +20,10 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
     private static final String BINANCE_WS_URL = "wss://fstream.binance.com/ws/";
 
     private final ObjectMapper objectMapper;
-    private final Consumer<Candle> candleUpdateListener;
+    private final BiConsumer<Candle, Boolean> candleUpdateListener;
     private WebSocketSession currentSession;
 
-    public BinanceWebSocketClient(ObjectMapper objectMapper, Consumer<Candle> listener) {
+    public BinanceWebSocketClient(ObjectMapper objectMapper, BiConsumer<Candle, Boolean> listener) {
         this.objectMapper = objectMapper;
         this.candleUpdateListener = listener;
     }
@@ -72,12 +72,14 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
                 Double.parseDouble(data.high()),
                 Double.parseDouble(data.low()),
                 Double.parseDouble(data.close()),
-                Double.parseDouble(data.volume())
+                Double.parseDouble(data.volume()),
+                Double.parseDouble(data.quoteAssetVolume()),
+                Double.parseDouble(data.takerBuyBaseAssetVolume())
         );
 
-        // Se alguém estiver escutando, repassa o candle
+        // Se alguém estiver escutando, repassa o candle e o status de fechamento
         if (candleUpdateListener != null) {
-            candleUpdateListener.accept(candle);
+            candleUpdateListener.accept(candle, data.isClosed());
         }
     }
 

@@ -21,6 +21,8 @@ public record BinanceKlineEvent(
             @JsonProperty("l") String low,
             @JsonProperty("c") String close,
             @JsonProperty("v") String volume,
+            @JsonProperty("q") String quoteAssetVolume,
+            @JsonProperty("V") String takerBuyBaseAssetVolume,
             @JsonProperty("x") boolean isClosed
     ) {}
 }

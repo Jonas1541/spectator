@@ -26,11 +26,13 @@ public class Candle {
     private double low;
     private double close;
     private double volume;
+    private double quoteAssetVolume;
+    private double takerBuyBaseAssetVolume;
 
     public Candle() {
     }
 
-    public Candle(String symbol, String timeframe, Instant time, double open, double high, double low, double close, double volume) {
+    public Candle(String symbol, String timeframe, Instant time, double open, double high, double low, double close, double volume, double quoteAssetVolume, double takerBuyBaseAssetVolume) {
         this.symbol = symbol;
         this.timeframe = timeframe;
         this.time = time;
@@ -39,6 +41,8 @@ public class Candle {
         this.low = low;
         this.close = close;
         this.volume = volume;
+        this.quoteAssetVolume = quoteAssetVolume;
+        this.takerBuyBaseAssetVolume = takerBuyBaseAssetVolume;
     }
 
     public String getSymbol() {
@@ -73,6 +77,14 @@ public class Candle {
         return volume;
     }
 
+    public double getQuoteAssetVolume() {
+        return quoteAssetVolume;
+    }
+
+    public double getTakerBuyBaseAssetVolume() {
+        return takerBuyBaseAssetVolume;
+    }
+
     public void setSymbol(String symbol) {
         this.symbol = symbol;
     }
@@ -103,6 +115,14 @@ public class Candle {
 
     public void setVolume(double volume) {
         this.volume = volume;
+    }
+
+    public void setQuoteAssetVolume(double quoteAssetVolume) {
+        this.quoteAssetVolume = quoteAssetVolume;
+    }
+
+    public void setTakerBuyBaseAssetVolume(double takerBuyBaseAssetVolume) {
+        this.takerBuyBaseAssetVolume = takerBuyBaseAssetVolume;
     }
 
     public boolean isBullish() {
@@ -142,6 +162,9 @@ public class Candle {
                 ", h=" + high +
                 ", l=" + low +
                 ", c=" + close +
+                ", v=" + volume +
+                ", qav=" + quoteAssetVolume +
+                ", tbbav=" + takerBuyBaseAssetVolume +
                 '}';
     }
 }

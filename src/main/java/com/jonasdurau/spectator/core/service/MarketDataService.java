@@ -23,6 +23,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.time.Instant;
 
 @Service
@@ -33,6 +35,8 @@ public class MarketDataService {
 
     @Value("${spectator.symbols}")
     private String symbolsConfig;
+
+    private final Map<String, MarketRegime> currentRegimeMap = new ConcurrentHashMap<>();
 
     private final CandleRepository candleRepository;
     private final BinanceRestClient restClient;
@@ -85,9 +89,14 @@ public class MarketDataService {
             new BinanceDepthWebSocketClient(objectMapper, orderBookService).connect(s);
 
             // 4. Conecta nos WebSockets de Order Flow (AggTrades e MarkPrice)
-            new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService).connect(s);
+            new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService, this::onPriceTick).connect(s);
             new BinanceMarkPriceWebSocketClient(objectMapper, orderFlowService).connect(s);
         }
+    }
+
+    private void onPriceTick(String symbol, double price) {
+        MarketRegime currentRegime = currentRegimeMap.getOrDefault(symbol, MarketRegime.SIDEWAYS);
+        positionManagerService.evaluateLiveTick(symbol, price, currentRegime);
     }
 
     private void seedHistoricalData(String symbol, String timeframe) {
@@ -145,7 +154,7 @@ public class MarketDataService {
     private void startRealtimeStream(String symbol, String timeframe) {
         log.info("Opening WebSocket stream for {} ({})...", symbol, timeframe);
 
-        new BinanceWebSocketClient(objectMapper, incomingCandle -> {
+        new BinanceWebSocketClient(objectMapper, (incomingCandle, isClosed) -> {
             candleRepository.upsert(incomingCandle);
 
             if ("1h".equals(timeframe)) {
@@ -160,18 +169,22 @@ public class MarketDataService {
                     currentRegime = regimeAnalyzerService.analyze(recent4h);
                 }
 
-                log.info("Tick: {} | Price: {} | 4H Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
-                        currentRegime);
+                currentRegimeMap.put(symbol, currentRegime);
 
-                positionManagerService.evaluateLiveTick(symbol, incomingCandle.getClose(), currentRegime);
-                strategyEngineService.processTick(symbol, incomingCandle.getClose(), currentRegime, recent1h);
+                if (isClosed) {
+                    log.info("Candle CLOSED: {} | Price: {} | 4H Regime: {}", incomingCandle.getSymbol(), incomingCandle.getClose(),
+                            currentRegime);
+                    strategyEngineService.processTick(symbol, incomingCandle.getClose(), currentRegime, recent1h);
+                }
 
                 List<com.jonasdurau.spectator.core.domain.Position> openPositions = positionManagerService
                         .getOpenPositions(symbol);
 
                 broadcaster.broadcast(new MarketTick(incomingCandle, currentRegime, openPositions));
             } else {
-                log.info("Saved {} 4H tick: {} | Price: {}", symbol, incomingCandle.getSymbol(), incomingCandle.getClose());
+                if (isClosed) {
+                    log.info("Candle CLOSED: {} 4H tick | Price: {}", incomingCandle.getSymbol(), incomingCandle.getClose());
+                }
             }
         }).connect(symbol, timeframe);
     }

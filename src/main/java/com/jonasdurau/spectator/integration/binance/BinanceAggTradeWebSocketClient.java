@@ -13,6 +13,8 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.util.function.BiConsumer;
+
 @Component
 @ConditionalOnProperty(name = "spectator.mode.backtest-only", havingValue = "false", matchIfMissing = true)
 public class BinanceAggTradeWebSocketClient extends TextWebSocketHandler {
@@ -22,11 +24,13 @@ public class BinanceAggTradeWebSocketClient extends TextWebSocketHandler {
 
     private final ObjectMapper objectMapper;
     private final OrderFlowService orderFlowService;
+    private final BiConsumer<String, Double> priceTickListener;
     private String connectedSymbol;
 
-    public BinanceAggTradeWebSocketClient(ObjectMapper objectMapper, OrderFlowService orderFlowService) {
+    public BinanceAggTradeWebSocketClient(ObjectMapper objectMapper, OrderFlowService orderFlowService, BiConsumer<String, Double> priceTickListener) {
         this.objectMapper = objectMapper;
         this.orderFlowService = orderFlowService;
+        this.priceTickListener = priceTickListener;
     }
 
     public void connect(String symbol) {
@@ -45,9 +49,14 @@ public class BinanceAggTradeWebSocketClient extends TextWebSocketHandler {
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         BinanceAggTradeEvent event = objectMapper.readValue(message.getPayload(), BinanceAggTradeEvent.class);
-        if (event.quantity() != null) {
+        if (event.quantity() != null && event.price() != null) {
             double quantity = Double.parseDouble(event.quantity());
+            double price = Double.parseDouble(event.price());
             orderFlowService.registerTrade(connectedSymbol, quantity, event.isBuyerMaker());
+            
+            if (priceTickListener != null) {
+                priceTickListener.accept(connectedSymbol, price);
+            }
         }
     }
 
