@@ -23,7 +23,7 @@ import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 
 import java.util.List;
 
-@Component
+//@Component
 public class BollingerPinBarStrategy implements TradingStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(BollingerPinBarStrategy.class);

@@ -2,6 +2,7 @@ package com.jonasdurau.spectator.core.backtest;
 
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
+import com.jonasdurau.spectator.core.domain.OrderFlowContext;
 import com.jonasdurau.spectator.core.domain.TradeSide;
 import com.jonasdurau.spectator.core.repository.CandleRepository;
 import com.jonasdurau.spectator.core.strategy.RegimeAnalyzerService;
@@ -270,9 +271,16 @@ public class BacktestEngineService {
                 }
                 pos.lastRegime = regime;
 
+                // Calculate Volume Delta from historical candle data
+                double totalVolume = currentCandle.getVolume();
+                double buyerVolume = currentCandle.getTakerBuyBaseAssetVolume();
+                double sellerVolume = totalVolume - buyerVolume;
+                double delta = buyerVolume - sellerVolume;
+                OrderFlowContext orderFlowContext = new OrderFlowContext(delta, 0.0);
+
                 TradeSignal signal = TradeSignal.ignore();
                 for (TradingStrategy strategy : strategies) {
-                    signal = strategy.evaluate(window1h, regime, currentCandle.getClose(), null);
+                    signal = strategy.evaluate(window1h, regime, currentCandle.getClose(), orderFlowContext);
                     if (signal.fire()) break;
                 }
 

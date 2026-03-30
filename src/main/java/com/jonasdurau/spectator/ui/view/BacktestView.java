@@ -72,9 +72,12 @@ public class BacktestView extends VerticalLayout {
     private final Button exportCsvButton = new Button("📊 Export CSV");
     private final Anchor downloadAnchor = new Anchor();
     
-    // State for CSV export (uses first symbol's data)
+    // State for CSV export
+    private boolean isPortfolioMode = false;
     private List<Candle> lastChartData;
     private BacktestReport lastReport;
+    private java.util.Map<String, List<Candle>> lastPortfolioChartData;
+    private PortfolioBacktestReport lastPortfolioReport;
     
     // Results Board
     private final Span winRateLabel = new Span("-");
@@ -289,6 +292,7 @@ public class BacktestView extends VerticalLayout {
                         
                         lastChartData = chartData;
                         lastReport = overallReport;
+                        isPortfolioMode = false;
                         exportCsvButton.setEnabled(true);
                         
                         runButton.setEnabled(true);
@@ -324,10 +328,10 @@ public class BacktestView extends VerticalLayout {
                         
                         renderChartsForSymbols(portfolio.symbolReports(), start, end);
                         
-                        // CSV export uses first symbol
-                        String firstSymbol = symbols.get(0);
-                        lastChartData = chartDataMap.get(firstSymbol);
-                        lastReport = portfolio.symbolReports().get(firstSymbol);
+                        // CSV export uses all selected symbols
+                        lastPortfolioChartData = chartDataMap;
+                        lastPortfolioReport = portfolio;
+                        isPortfolioMode = true;
                         exportCsvButton.setEnabled(true);
                         
                         runButton.setEnabled(true);
@@ -505,12 +509,18 @@ public class BacktestView extends VerticalLayout {
     }
 
     private void triggerCsvDownload() {
-        if (lastChartData == null || lastReport == null) {
+        if (!isPortfolioMode && (lastChartData == null || lastReport == null)) {
+            Notification.show("Run a backtest first.", 3000, Notification.Position.TOP_CENTER);
+            return;
+        }
+        if (isPortfolioMode && (lastPortfolioChartData == null || lastPortfolioReport == null)) {
             Notification.show("Run a backtest first.", 3000, Notification.Position.TOP_CENTER);
             return;
         }
 
-        String csvContent = BacktestCsvExporter.export(lastChartData, lastReport);
+        String csvContent = isPortfolioMode ? 
+                BacktestCsvExporter.exportPortfolio(lastPortfolioChartData, lastPortfolioReport) : 
+                BacktestCsvExporter.exportSingle(lastChartData, lastReport);
         byte[] csvBytes = csvContent.getBytes(StandardCharsets.UTF_8);
 
         String startStr = startDatePicker.getValue() != null ? startDatePicker.getValue().toString() : "start";

@@ -17,15 +17,61 @@ import java.util.stream.Collectors;
 public class BacktestCsvExporter {
 
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC);
-    private static final String HEADER = "timestamp,open,high,low,close,volume,trade_action,trade_side,trade_price,trade_pnl,regime";
+    private static final String HEADER = "symbol,timestamp,open,high,low,close,volume,trade_action,trade_side,trade_price,trade_pnl,regime";
 
     /**
-     * Gera o conteúdo CSV completo a partir dos mesmos dados que alimentam o gráfico do TradingView.
+     * Gera o conteúdo CSV completo para um único símbolo.
      */
-    public static String export(List<Candle> candles, BacktestReport report) {
+    public static String exportSingle(List<Candle> candles, BacktestReport report) {
         if (candles == null || candles.isEmpty()) {
             return HEADER + "\n";
         }
+        StringBuilder csv = new StringBuilder();
+        csv.append(HEADER).append('\n');
+        appendRows(csv, candles, report);
+        appendSummary(csv, report);
+        return csv.toString();
+    }
+
+    /**
+     * Gera o conteúdo CSV completo para todo o portfólio.
+     */
+    public static String exportPortfolio(Map<String, List<Candle>> chartDataMap, PortfolioBacktestReport portfolio) {
+        StringBuilder csv = new StringBuilder();
+        csv.append(HEADER).append('\n');
+        
+        for (Map.Entry<String, List<Candle>> entry : chartDataMap.entrySet()) {
+            String symbol = entry.getKey();
+            BacktestReport report = portfolio.symbolReports().get(symbol);
+            if (report != null && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                appendRows(csv, entry.getValue(), report);
+            }
+        }
+        
+        csv.append('\n');
+        csv.append("# PORTFOLIO SUMMARY\n");
+        csv.append("# execution_name,").append(portfolio.executionName()).append('\n');
+        csv.append("# initial_capital,").append(String.format(Locale.US, "%.2f", portfolio.globalInitialCapital())).append('\n');
+        csv.append("# final_capital,").append(String.format(Locale.US, "%.2f", portfolio.globalFinalCapital())).append('\n');
+        csv.append("# net_profit,").append(String.format(Locale.US, "%.2f", portfolio.globalNetProfit())).append('\n');
+        csv.append("# max_drawdown,").append(String.format(Locale.US, "%.2f%%", portfolio.globalMaxDrawdown())).append('\n');
+        csv.append("# expectancy,").append(String.format(Locale.US, "%.2f", portfolio.globalExpectancy())).append('\n');
+        csv.append("# sharpe_ratio,").append(String.format(Locale.US, "%.2f", portfolio.globalSharpeRatio())).append('\n');
+        
+        if (portfolio.globalMcReport() != null) {
+            MonteCarloReport mc = portfolio.globalMcReport();
+            csv.append("# mc_risk_of_ruin,").append(String.format(Locale.US, "%.2f%%", mc.riskOfRuin())).append('\n');
+            csv.append("# mc_median_max_drawdown,").append(String.format(Locale.US, "%.2f%%", mc.medianMaxDrawdown())).append('\n');
+        }
+        
+        for (BacktestReport report : portfolio.symbolReports().values()) {
+            appendSummary(csv, report);
+        }
+
+        return csv.toString();
+    }
+
+    private static void appendRows(StringBuilder csv, List<Candle> candles, BacktestReport report) {
 
         List<BacktestTrade> trades = report.tradeLog();
         List<RegimeChangeEvent> regimeChanges = report.regimeChanges();
@@ -46,9 +92,6 @@ public class BacktestCsvExporter {
                 .sorted(Comparator.comparing(Candle::getTime))
                 .toList();
 
-        StringBuilder csv = new StringBuilder();
-        csv.append(HEADER).append('\n');
-
         String currentRegime = "";
         int regimeIdx = 0;
 
@@ -64,8 +107,8 @@ public class BacktestCsvExporter {
             }
 
             String timestamp = ISO_FORMATTER.format(candleTime);
-            String candleBase = String.format(Locale.US, "%s,%.2f,%.2f,%.2f,%.2f,%.2f",
-                    timestamp, candle.getOpen(), candle.getHigh(), candle.getLow(), candle.getClose(), candle.getVolume());
+            String candleBase = String.format(Locale.US, "%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f",
+                    candle.getSymbol(), timestamp, candle.getOpen(), candle.getHigh(), candle.getLow(), candle.getClose(), candle.getVolume());
 
             List<BacktestTrade> candleTrades = tradeIndex.get(epochSecond);
 
@@ -89,8 +132,9 @@ public class BacktestCsvExporter {
                 csv.append(candleBase).append(",,,,,").append(currentRegime).append('\n');
             }
         }
+    }
 
-        // Seção de sumário ao final (linhas comentadas para não quebrar parsers de CSV)
+    private static void appendSummary(StringBuilder csv, BacktestReport report) {
         csv.append('\n');
         csv.append("# BACKTEST SUMMARY\n");
         csv.append("# strategy,").append(report.strategyName()).append('\n');
@@ -114,8 +158,6 @@ public class BacktestCsvExporter {
             csv.append("# mc_median_max_drawdown,").append(String.format(Locale.US, "%.2f%%", mc.medianMaxDrawdown())).append('\n');
             csv.append("# mc_simulations,").append(mc.simulationsRun()).append('\n');
         }
-
-        return csv.toString();
     }
 
     private static String resolveAction(BacktestTrade trade) {
