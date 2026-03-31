@@ -13,20 +13,31 @@ public class MonteCarloSimulatorService {
     private static final double RUIN_THRESHOLD = 20.0; // Se o Drawdown passar de 20%, consideramos ruína
 
     public MonteCarloReport runSimulation(List<BacktestTrade> tradeLog, double initialCapital) {
-        // Extrai apenas os PnLs dos trades fechados
-        List<Double> pnls = tradeLog.stream()
+        // Extrai trades fechados e os ordena cronologicamente
+        List<BacktestTrade> closedTrades = tradeLog.stream()
                 .filter(t -> !t.isEntry())
-                .map(BacktestTrade::pnl)
+                .sorted(java.util.Comparator.comparing(BacktestTrade::time))
                 .toList();
 
-        if (pnls.isEmpty()) {
+        if (closedTrades.isEmpty()) {
             return new MonteCarloReport(0, 0.0, 0.0, RUIN_THRESHOLD);
+        }
+
+        // Reconstrói a curva de capital real para encontrar o ROI % exato de cada trade
+        List<Double> tradeRois = new ArrayList<>();
+        double historyEquity = initialCapital;
+
+        for (BacktestTrade trade : closedTrades) {
+            double pnl = trade.pnl();
+            double returnPct = pnl / historyEquity;
+            tradeRois.add(returnPct);
+            historyEquity += pnl;
         }
 
         int ruinCount = 0;
         List<Double> maxDrawdowns = new ArrayList<>();
         Random random = new Random();
-        int tradeCount = pnls.size();
+        int tradeCount = tradeRois.size();
 
         for (int i = 0; i < SIMULATIONS; i++) {
             double simulatedCapital = initialCapital;
@@ -36,8 +47,8 @@ public class MonteCarloSimulatorService {
 
             // Simula uma linha do tempo inteira sorteando trades do passado aleatoriamente
             for (int j = 0; j < tradeCount; j++) {
-                double randomTradePnl = pnls.get(random.nextInt(tradeCount));
-                simulatedCapital += randomTradePnl;
+                double randomTradeRoi = tradeRois.get(random.nextInt(tradeCount));
+                simulatedCapital *= (1 + randomTradeRoi);
 
                 if (simulatedCapital > peakCapital) {
                     peakCapital = simulatedCapital;
