@@ -128,32 +128,51 @@ public class BacktestEngineService {
 
                 boolean closed = false;
                 double exitPrice = 0.0;
+                boolean isMaker = false;
 
                 if (pos.currentSide == TradeSide.LONG) {
                     if (currentCandle.getLow() <= pos.stopLoss) {
                         exitPrice = pos.stopLoss;
                         closed = true;
+                        isMaker = false;
                     } else if (currentCandle.getHigh() >= pos.takeProfit) {
                         exitPrice = pos.takeProfit;
                         closed = true;
+                        isMaker = true;
                     }
                 } else { // SHORT
                     if (currentCandle.getHigh() >= pos.stopLoss) {
                         exitPrice = pos.stopLoss;
                         closed = true;
+                        isMaker = false;
                     } else if (currentCandle.getLow() <= pos.takeProfit) {
                         exitPrice = pos.takeProfit;
                         closed = true;
+                        isMaker = true;
                     }
                 }
 
                 if (closed) {
+                    double entryFee = (pos.entryPrice * pos.positionQuantity) * 0.0005;
+                    double exitFee = 0.0;
+
+                    if (isMaker) {
+                        exitFee = (exitPrice * pos.positionQuantity) * 0.0002;
+                    } else {
+                        double notional = pos.positionQuantity * exitPrice;
+                        double slippage = calculateSlippage(notional);
+                        if (pos.currentSide == TradeSide.LONG) {
+                            exitPrice = exitPrice * (1 - slippage);
+                        } else {
+                            exitPrice = exitPrice * (1 + slippage);
+                        }
+                        exitFee = (exitPrice * pos.positionQuantity) * 0.0005;
+                    }
+
                     double grossPnl = (pos.currentSide == TradeSide.LONG) ?
                             (exitPrice - pos.entryPrice) * pos.positionQuantity :
                             (pos.entryPrice - exitPrice) * pos.positionQuantity;
 
-                    double entryFee = (pos.entryPrice * pos.positionQuantity) * 0.0005;
-                    double exitFee = (exitPrice * pos.positionQuantity) * 0.0005;
                     double netPnl = grossPnl - entryFee - exitFee;
 
                     globalCapital += netPnl;
@@ -217,7 +236,7 @@ public class BacktestEngineService {
                             } else {
                                 partialPnl = (pos.entryPrice - pos.tp1Price) * pos.tp1Quantity;
                             }
-                            double partialFees = (pos.entryPrice * pos.tp1Quantity * 0.0002) + (pos.tp1Price * pos.tp1Quantity * 0.0005);
+                            double partialFees = (pos.entryPrice * pos.tp1Quantity * 0.0005) + (pos.tp1Price * pos.tp1Quantity * 0.0002);
                             partialPnl -= partialFees;
                             globalCapital += partialPnl;
                             acc.tradeReturns.add(partialPnl);
@@ -339,6 +358,15 @@ public class BacktestEngineService {
                     if (pos.positionQuantity <= 0.0) {
                         pos.inPosition = false;
                         continue;
+                    }
+
+                    double notional = pos.positionQuantity * pos.entryPrice;
+                    double slippage = calculateSlippage(notional);
+
+                    if (pos.currentSide == TradeSide.LONG) {
+                        pos.entryPrice = pos.entryPrice * (1 + slippage);
+                    } else {
+                        pos.entryPrice = pos.entryPrice * (1 - slippage);
                     }
 
                     // Recalculate exposure after this entry
@@ -465,6 +493,13 @@ public class BacktestEngineService {
                 globalMcReport,
                 symbolReports
         );
+    }
+
+    // ============================================================
+    // HELPER: Dynamic Slippage Calculator
+    // ============================================================
+    private double calculateSlippage(double notionalSize) {
+        return 0.0002 + (notionalSize / 1_000_000.0) * 0.0005;
     }
 
     // ============================================================
