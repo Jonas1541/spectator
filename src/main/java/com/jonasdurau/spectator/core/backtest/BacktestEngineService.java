@@ -55,16 +55,18 @@ public class BacktestEngineService {
     public PortfolioBacktestReport runPortfolioBacktest(String executionName, List<TradingStrategy> strategies, List<String> symbols, Instant start, Instant end, double initialCapital) {
         log.info("Starting Portfolio Backtest '{}' on {} symbols from {} to {}", executionName, symbols.size(), start, end);
 
+        Instant warmUpStartTime = start.minus(60, java.time.temporal.ChronoUnit.DAYS);
+
         // --- PHASE 1: Data Loading ---
         Map<String, List<Candle>> history1hMap = new LinkedHashMap<>();
         Map<String, List<Candle>> history4hMap = new LinkedHashMap<>();
 
         for (String symbol : symbols) {
-            historicalSyncService.ensureDataAvailable(symbol, "1h", start, end);
-            historicalSyncService.ensureDataAvailable(symbol, "4h", start, end);
+            historicalSyncService.ensureDataAvailable(symbol, "1h", warmUpStartTime, end);
+            historicalSyncService.ensureDataAvailable(symbol, "4h", warmUpStartTime, end);
 
-            List<Candle> h1 = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", start, end);
-            List<Candle> h4 = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "4h", start, end);
+            List<Candle> h1 = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "1h", warmUpStartTime, end);
+            List<Candle> h4 = candleRepository.findBySymbolAndTimeframeAndTimeBetweenOrderByTimeAsc(symbol, "4h", warmUpStartTime, end);
 
             if (h1.size() <= WARMUP_PERIOD) {
                 log.warn("Skipping symbol {} — not enough 1H data (found: {})", symbol, h1.size());
@@ -304,6 +306,10 @@ public class BacktestEngineService {
                 }
 
                 if (signal.fire()) {
+                    if (currentCandle.getTime().isBefore(start)) {
+                        continue; // Warm-up block: allow indicators to build state, but prevent execution
+                    }
+
                     // Correlation Lock dinâmico: calcula o estado exato da carteira NESTE momento
                     long currentOpenLongs = positionStates.values().stream().filter(s -> s.inPosition && s.currentSide == TradeSide.LONG).count();
                     long currentOpenShorts = positionStates.values().stream().filter(s -> s.inPosition && s.currentSide == TradeSide.SHORT).count();
