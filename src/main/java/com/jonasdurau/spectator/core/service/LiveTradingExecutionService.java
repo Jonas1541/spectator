@@ -71,7 +71,8 @@ public class LiveTradingExecutionService implements OrderExecutionService {
         } catch (Exception e) {
             log.error("🚨 [LIVE TRADING] FAILED to execute {} {} order for {} (Qty: {}): {}",
                     strategyName, side, symbol, quantity, e.getMessage(), e);
-            // Não abre posição interna se a ordem falhou na Binance
+            // Propaga o erro para que camadas superiores saibam que a ordem falhou
+            throw new RuntimeException("Failed to execute live order on Binance: " + e.getMessage(), e);
         }
     }
 }

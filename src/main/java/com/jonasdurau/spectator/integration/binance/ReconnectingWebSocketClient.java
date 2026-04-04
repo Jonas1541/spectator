@@ -49,7 +49,7 @@ public abstract class ReconnectingWebSocketClient extends TextWebSocketHandler {
         StandardWebSocketClient client = new StandardWebSocketClient();
         try {
             log.info("Connecting to Binance WebSocket: {}", streamUrl);
-            client.execute(this, streamUrl).get();
+            client.execute(this, streamUrl).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.error("Failed to connect to Binance WebSocket: {}", streamUrl, e);
             if (shouldReconnect) {
