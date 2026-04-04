@@ -47,6 +47,7 @@ dependencies {
 	implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.4.0")
 	implementation("io.github.resilience4j:resilience4j-ratelimiter:2.4.0")
 	implementation("me.paulschwarz:spring-dotenv:5.1.0")
+	implementation("io.micrometer:micrometer-registry-prometheus")
 }
 
 dependencyManagement {

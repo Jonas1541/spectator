@@ -35,11 +35,22 @@ public abstract class ReconnectingWebSocketClient extends TextWebSocketHandler {
                 return t;
             });
 
+    // Callback opcional para reportar reconexões ao TradingMetricsService
+    private Runnable reconnectCallback;
+
     /**
      * Subclasses devem retornar a URL completa do stream WebSocket.
      * Ex: wss://fstream.binance.com/ws/btcusdt@kline_1h
      */
     protected abstract String buildStreamUrl();
+
+    /**
+     * Define callback chamado em cada reconexão bem-sucedida.
+     * Usado pelo MarketDataService para reportar métricas sem acoplamento direto.
+     */
+    public void setReconnectCallback(Runnable callback) {
+        this.reconnectCallback = callback;
+    }
 
     /**
      * Inicia a conexão com a Binance. Chamada inicial e também pela rotina de reconexão.
@@ -64,6 +75,9 @@ public abstract class ReconnectingWebSocketClient extends TextWebSocketHandler {
         int attempts = reconnectAttempts.getAndSet(0);
         if (attempts > 0) {
             log.info("✅ Binance WebSocket RECONNECTED after {} attempts. Session: {}", attempts, session.getId());
+            if (reconnectCallback != null) {
+                reconnectCallback.run();
+            }
         } else {
             log.info("Binance WebSocket Connection Established. Session: {}", session.getId());
         }

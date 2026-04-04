@@ -1,0 +1,13 @@
+# Provisionamento automático de dashboards no Grafana
+apiVersion: 1
+
+providers:
+  - name: 'Spectator'
+    orgId: 1
+    folder: 'Spectator'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

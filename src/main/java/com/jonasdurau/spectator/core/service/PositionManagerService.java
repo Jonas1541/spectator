@@ -22,10 +22,17 @@ public class PositionManagerService {
 
     private final PositionRepository positionRepository;
     private final TradeRepository tradeRepository;
+    private final TradingMetricsService metricsService;
+    private final NotificationService notificationService;
 
-    public PositionManagerService(PositionRepository positionRepository, TradeRepository tradeRepository) {
+    public PositionManagerService(PositionRepository positionRepository,
+                                   TradeRepository tradeRepository,
+                                   TradingMetricsService metricsService,
+                                   NotificationService notificationService) {
         this.positionRepository = positionRepository;
         this.tradeRepository = tradeRepository;
+        this.metricsService = metricsService;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -42,12 +49,27 @@ public class PositionManagerService {
         position = positionRepository.save(position);
         tradeRepository.save(trade);
 
+        metricsService.recordPositionOpened();
+        notificationService.notifyTradeEntry(symbol, strategyName, side.name(), entryPrice, quantity);
+
         return position;
     }
 
+    /**
+     * Fecha uma posição sem especificar motivo (retrocompatibilidade).
+     */
     @Transactional
     public void closePosition(Position position, double closingPrice) {
-        log.info("Closing {} position for {} at {}", position.getSide(), position.getSymbol(), closingPrice);
+        closePosition(position, closingPrice, "MANUAL");
+    }
+
+    /**
+     * Fecha uma posição com motivo de saída explícito para métricas e notificações.
+     * @param exitReason Ex: "STOP_LOSS", "TAKE_PROFIT", "PANIC_CLOSE"
+     */
+    @Transactional
+    public void closePosition(Position position, double closingPrice, String exitReason) {
+        log.info("Closing {} position for {} at {} (Reason: {})", position.getSide(), position.getSymbol(), closingPrice, exitReason);
 
         TradeSide exitSide = position.getSide() == TradeSide.LONG ? TradeSide.SHORT : TradeSide.LONG;
         Trade trade = new Trade(position, position.getSymbol(), exitSide, closingPrice, position.getQuantity(),
@@ -58,7 +80,21 @@ public class PositionManagerService {
 
         positionRepository.save(position);
         tradeRepository.save(trade);
-        log.info("Position closed. Realized PnL: {}", position.getRealizedPnl());
+
+        double pnl = position.getRealizedPnl();
+        log.info("Position closed. Realized PnL: {}", pnl);
+
+        // Métricas
+        metricsService.recordPositionClosed(pnl);
+        switch (exitReason) {
+            case "STOP_LOSS" -> metricsService.recordStopLossHit();
+            case "TAKE_PROFIT" -> metricsService.recordTakeProfitHit();
+            case "PANIC_CLOSE" -> metricsService.recordPanicClose();
+        }
+
+        // Notificações
+        notificationService.notifyTradeExit(
+                position.getSymbol(), exitReason, position.getSide().name(), closingPrice, pnl);
     }
 
     @Transactional
@@ -68,7 +104,7 @@ public class PositionManagerService {
         for (Position position : openPositions) {
             double pnl = position.calculateFloatingPnl(currentPrice);
 
-            // ---> NOVO: GESTÃO DE TRADE: Breakeven e Trailing Paramétricos <---
+            // ---> GESTÃO DE TRADE: Breakeven e Trailing Paramétricos <---
             boolean stopMoved = false;
             Double currentStop = position.getStopLoss();
             Double initialStop = position.getInitialStopLoss();
@@ -85,7 +121,7 @@ public class PositionManagerService {
                         if (currentPrice >= (entryPrice + (riskDistance * breakevenMult))) {
                             if (currentStop < entryPrice) {
                                 position.setStopLoss(entryPrice);
-                                currentStop = entryPrice; // Update memory for trailing step
+                                currentStop = entryPrice;
                                 stopMoved = true;
                                 log.info("Breakeven hit for LONG on {}! Stop moved to entry: {}", symbol, entryPrice);
                             }
@@ -127,11 +163,10 @@ public class PositionManagerService {
             }
             
             if (stopMoved) {
-                positionRepository.save(position); // Salva o novo stop no banco
+                positionRepository.save(position);
             }
-            // ---------------------------------------------------------------
 
-            // --- PHASE 16: PARTIAL TAKE PROFIT (TP1) ---
+            // --- PARTIAL TAKE PROFIT (TP1) ---
             if (!position.isTp1Triggered() && position.getTp1Price() != null && position.getTp1Quantity() != null) {
                 boolean tp1Hit = false;
                 if (position.getSide() == TradeSide.LONG && currentPrice >= position.getTp1Price()) {
@@ -146,7 +181,6 @@ public class PositionManagerService {
                     
                     log.info("💰 TP1 HIT! Partially closing {} of {} at {}. Remaining: {}", partialQty, position.getSymbol(), currentPrice, remainingQty);
                     
-                    // Record the partial exit trade
                     TradeSide exitSide = position.getSide() == TradeSide.LONG ? TradeSide.SHORT : TradeSide.LONG;
                     Trade partialTrade = new Trade(position, position.getSymbol(), exitSide, currentPrice, partialQty, Instant.now());
                     position.addTrade(partialTrade);
@@ -154,14 +188,17 @@ public class PositionManagerService {
                     
                     position.setQuantity(remainingQty);
                     position.setTp1Triggered(true);
-                    // Move stop to breakeven after partial
                     position.setStopLoss(position.getEntryPrice());
                     positionRepository.save(position);
                     log.info("✅ Stop moved to Breakeven after TP1. New quantity: {}", remainingQty);
+
+                    metricsService.recordTp1Hit();
+                    notificationService.notifyTradeExit(
+                            position.getSymbol(), "TP1_PARTIAL", position.getSide().name(), currentPrice, 0.0);
                 }
             }
 
-            // --- PHASE 16: PANIC CLOSE (HMM Regime Shift) ---
+            // --- PANIC CLOSE (HMM Regime Shift) ---
             if (position.getStrategyName() != null && position.getStrategyName().toLowerCase().contains("pullback")) {
                 boolean panicClose = false;
                 if (position.getSide() == TradeSide.LONG && currentRegime != MarketRegime.TRENDING_UP) {
@@ -173,7 +210,7 @@ public class PositionManagerService {
                 if (panicClose) {
                     log.warn("🚨 PANIC CLOSE! Regime shifted to {} while holding {} {}. Closing at {}.", 
                              currentRegime, position.getSide(), position.getSymbol(), currentPrice);
-                    closePosition(position, currentPrice);
+                    closePosition(position, currentPrice, "PANIC_CLOSE");
                     continue;
                 }
             }
@@ -183,12 +220,12 @@ public class PositionManagerService {
                 if (position.getSide() == TradeSide.LONG && currentPrice <= position.getStopLoss()) {
                     log.warn("Stop Loss hit for LONG position on {}! Closing at {}. Floating PnL was: {}", symbol,
                             currentPrice, pnl);
-                    closePosition(position, currentPrice);
+                    closePosition(position, currentPrice, "STOP_LOSS");
                     continue;
                 } else if (position.getSide() == TradeSide.SHORT && currentPrice >= position.getStopLoss()) {
                     log.warn("Stop Loss hit for SHORT position on {}! Closing at {}. Floating PnL was: {}", symbol,
                             currentPrice, pnl);
-                    closePosition(position, currentPrice);
+                    closePosition(position, currentPrice, "STOP_LOSS");
                     continue;
                 }
             }
@@ -198,11 +235,11 @@ public class PositionManagerService {
                 if (position.getSide() == TradeSide.LONG && currentPrice >= position.getTakeProfit()) {
                     log.info("Take Profit hit for LONG position on {}! Closing at {}. Floating PnL was: {}", symbol,
                             currentPrice, pnl);
-                    closePosition(position, currentPrice);
+                    closePosition(position, currentPrice, "TAKE_PROFIT");
                 } else if (position.getSide() == TradeSide.SHORT && currentPrice <= position.getTakeProfit()) {
                     log.info("Take Profit hit for SHORT position on {}! Closing at {}. Floating PnL was: {}", symbol,
                             currentPrice, pnl);
-                    closePosition(position, currentPrice);
+                    closePosition(position, currentPrice, "TAKE_PROFIT");
                 }
             }
         }

@@ -47,6 +47,7 @@ public class MarketDataService {
     private final StrategyEngineService strategyEngineService;
     private final OrderBookService orderBookService;
     private final OrderFlowService orderFlowService;
+    private final TradingMetricsService metricsService;
 
     public MarketDataService(CandleRepository candleRepository,
             BinanceRestClient restClient,
@@ -56,7 +57,8 @@ public class MarketDataService {
             PositionManagerService positionManagerService,
             StrategyEngineService strategyEngineService,
             OrderBookService orderBookService,
-            OrderFlowService orderFlowService) {
+            OrderFlowService orderFlowService,
+            TradingMetricsService metricsService) {
         this.candleRepository = candleRepository;
         this.restClient = restClient;
         this.objectMapper = objectMapper;
@@ -66,6 +68,7 @@ public class MarketDataService {
         this.strategyEngineService = strategyEngineService;
         this.orderBookService = orderBookService;
         this.orderFlowService = orderFlowService;
+        this.metricsService = metricsService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -86,11 +89,18 @@ public class MarketDataService {
             startRealtimeStream(s, "4h");
 
             // 3. Conecta no WebSocket de Order Book (Depth 5 Níveis)
-            new BinanceDepthWebSocketClient(objectMapper, orderBookService, s).connect();
+            BinanceDepthWebSocketClient depthClient = new BinanceDepthWebSocketClient(objectMapper, orderBookService, s);
+            depthClient.setReconnectCallback(metricsService::recordWebSocketReconnect);
+            depthClient.connect();
 
             // 4. Conecta nos WebSockets de Order Flow (AggTrades e MarkPrice)
-            new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService, this::onPriceTick, s).connect();
-            new BinanceMarkPriceWebSocketClient(objectMapper, orderFlowService, s).connect();
+            BinanceAggTradeWebSocketClient aggTradeClient = new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService, this::onPriceTick, s);
+            aggTradeClient.setReconnectCallback(metricsService::recordWebSocketReconnect);
+            aggTradeClient.connect();
+
+            BinanceMarkPriceWebSocketClient markPriceClient = new BinanceMarkPriceWebSocketClient(objectMapper, orderFlowService, s);
+            markPriceClient.setReconnectCallback(metricsService::recordWebSocketReconnect);
+            markPriceClient.connect();
         }
     }
 
@@ -188,6 +198,7 @@ public class MarketDataService {
             }
         }, symbol, timeframe);
 
+        wsClient.setReconnectCallback(metricsService::recordWebSocketReconnect);
         wsClient.connect();
     }
 }

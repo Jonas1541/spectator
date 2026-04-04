@@ -1,0 +1,185 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Positions Opened (Total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "spectator_positions_opened_total",
+          "legendFormat": "Opened",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } }
+      }
+    },
+    {
+      "title": "Positions Closed (Total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [
+        {
+          "expr": "spectator_positions_closed_total",
+          "legendFormat": "Closed",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      }
+    },
+    {
+      "title": "Stop Loss Hits",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "expr": "spectator_positions_stopped_total",
+          "legendFormat": "SL Hits",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red", "value": null }] } }
+      }
+    },
+    {
+      "title": "Take Profit Hits",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "spectator_positions_tp_hit_total",
+          "legendFormat": "TP Hits",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      }
+    },
+    {
+      "title": "Panic Closes",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "expr": "spectator_positions_panic_close_total",
+          "legendFormat": "Panic",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "orange", "value": null }] } }
+      }
+    },
+    {
+      "title": "TP1 Partial Hits",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        {
+          "expr": "spectator_positions_tp1_hit_total",
+          "legendFormat": "TP1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "yellow", "value": null }] } }
+      }
+    },
+    {
+      "title": "Realized PnL (Cumulative)",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "spectator_pnl_realized",
+          "legendFormat": "PnL",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": { "mode": "continuous-GrYlRd" },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "green", "value": 100 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Live Orders (Success vs Failed)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 4 },
+      "targets": [
+        {
+          "expr": "rate(spectator_orders_live_success_total[5m])",
+          "legendFormat": "Success/min",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(spectator_orders_live_failed_total[5m])",
+          "legendFormat": "Failed/min",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "WebSocket Reconnects",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 4 },
+      "targets": [
+        {
+          "expr": "rate(spectator_websocket_reconnects_total[5m])",
+          "legendFormat": "Reconnects/min",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "JVM Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 10 },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+          "legendFormat": "{{id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "title": "JVM Thread Count",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 10 },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads",
+          "legendFormat": "Live Threads",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["spectator", "trading"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Spectator Trading Engine",
+  "uid": "spectator-trading"
+}

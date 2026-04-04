@@ -23,11 +23,17 @@ public class LiveTradingExecutionService implements OrderExecutionService {
 
     private final BinanceOrderService binanceOrderService;
     private final PositionManagerService positionManagerService;
+    private final TradingMetricsService metricsService;
+    private final NotificationService notificationService;
 
     public LiveTradingExecutionService(BinanceOrderService binanceOrderService,
-                                        PositionManagerService positionManagerService) {
+                                        PositionManagerService positionManagerService,
+                                        TradingMetricsService metricsService,
+                                        NotificationService notificationService) {
         this.binanceOrderService = binanceOrderService;
         this.positionManagerService = positionManagerService;
+        this.metricsService = metricsService;
+        this.notificationService = notificationService;
         log.warn("🔥🔥🔥 LIVE TRADING EXECUTION SERVICE ACTIVE! Real orders will be sent to Binance. 🔥🔥🔥");
     }
 
@@ -57,6 +63,8 @@ public class LiveTradingExecutionService implements OrderExecutionService {
             log.info("[LIVE TRADING] ✅ Order FILLED! orderId={}, avg price={}, executed qty={}, status={}",
                     response.orderId(), executionPrice, executedQuantity, response.status());
 
+            metricsService.recordLiveOrderSuccess();
+
             // 3. Registra a posição internamente para tracking de SL/TP/trailing
             com.jonasdurau.spectator.core.domain.Position position = positionManagerService.openPosition(
                     strategyName, symbol, side, executionPrice, executedQuantity,
@@ -71,6 +79,9 @@ public class LiveTradingExecutionService implements OrderExecutionService {
         } catch (Exception e) {
             log.error("🚨 [LIVE TRADING] FAILED to execute {} {} order for {} (Qty: {}): {}",
                     strategyName, side, symbol, quantity, e.getMessage(), e);
+            metricsService.recordLiveOrderFailed();
+            notificationService.notifyCriticalError("LiveTrading",
+                    String.format("Failed %s %s order for %s (Qty: %.6f): %s", strategyName, side, symbol, quantity, e.getMessage()));
             // Propaga o erro para que camadas superiores saibam que a ordem falhou
             throw new RuntimeException("Failed to execute live order on Binance: " + e.getMessage(), e);
         }

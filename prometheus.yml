@@ -1,0 +1,16 @@
+# Configuração do Prometheus para o Spectator
+# Scrape do endpoint Actuator a cada 15 segundos
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'spectator'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      # Em dev, a aplicação roda fora do Docker (localhost:8080).
+      # O 'host.docker.internal' resolve para o host da máquina.
+      # No compose, usamos extra_hosts para garantir que funciona em Linux.
+      - targets: ['host.docker.internal:8080']
+        labels:
+          application: 'spectator'
