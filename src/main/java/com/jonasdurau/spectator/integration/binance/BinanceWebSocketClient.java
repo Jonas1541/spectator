@@ -3,67 +3,45 @@ package com.jonasdurau.spectator.integration.binance;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceKlineEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.client.standard.StandardWebSocketClient;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.time.Instant;
 import java.util.function.BiConsumer;
 
-public class BinanceWebSocketClient extends TextWebSocketHandler {
+/**
+ * Cliente WebSocket para o stream de Klines (candles) da Binance Futures.
+ * Herda reconexão automática com backoff exponencial de ReconnectingWebSocketClient.
+ */
+public class BinanceWebSocketClient extends ReconnectingWebSocketClient {
 
-    private static final Logger log = LoggerFactory.getLogger(BinanceWebSocketClient.class);
     private static final String BINANCE_WS_URL = "wss://fstream.binance.com/ws/";
 
     private final ObjectMapper objectMapper;
     private final BiConsumer<Candle, Boolean> candleUpdateListener;
-    private WebSocketSession currentSession;
+    private final String symbol;
+    private final String interval;
 
-    public BinanceWebSocketClient(ObjectMapper objectMapper, BiConsumer<Candle, Boolean> listener) {
+    public BinanceWebSocketClient(ObjectMapper objectMapper, BiConsumer<Candle, Boolean> listener, String symbol, String interval) {
         this.objectMapper = objectMapper;
         this.candleUpdateListener = listener;
-    }
-
-    /**
-     * Inicia a conexão com a Binance para um símbolo e intervalo específicos.
-     * @param symbol Ex: "btcusdt" (A Binance exige minúsculo no WebSocket)
-     * @param interval Ex: "1h", "4h"
-     * @param listener Uma função que será chamada toda vez que um tick chegar
-     */
-    public void connect(String symbol, String interval) {
-        String streamUrl = BINANCE_WS_URL + symbol.toLowerCase() + "@kline_" + interval;
-
-        StandardWebSocketClient client = new StandardWebSocketClient();
-        try {
-            log.info("Connecting to Binance WebSocket: {}", streamUrl);
-            client.execute(this, streamUrl).get(); // .get() trava até conectar
-        } catch (Exception e) {
-            log.error("Failed to connect to Binance WebSocket", e);
-            // Em produção, implementaríamos um retry automático aqui
-        }
+        this.symbol = symbol;
+        this.interval = interval;
     }
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
-        this.currentSession = session;
-        log.info("Binance WebSocket Connection Established. Session ID: {}", session.getId());
+    protected String buildStreamUrl() {
+        return BINANCE_WS_URL + symbol.toLowerCase() + "@kline_" + interval;
     }
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+    protected void handleTextMessage(org.springframework.web.socket.WebSocketSession session,
+                                     org.springframework.web.socket.TextMessage message) throws Exception {
         String payload = message.getPayload();
-        
-        // Converte o JSON string para o nosso Record
+
         BinanceKlineEvent event = objectMapper.readValue(payload, BinanceKlineEvent.class);
         BinanceKlineEvent.KlineData data = event.kline();
 
-        // Converte o DTO da Binance para nossa Entidade de Domínio
         Instant time = Instant.ofEpochMilli(data.startTime());
-        
+
         Candle candle = new Candle(
                 event.symbol(),
                 data.interval(),
@@ -77,15 +55,8 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
                 Double.parseDouble(data.takerBuyBaseAssetVolume())
         );
 
-        // Se alguém estiver escutando, repassa o candle e o status de fechamento
         if (candleUpdateListener != null) {
             candleUpdateListener.accept(candle, data.isClosed());
         }
-    }
-
-    @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        log.warn("Binance WebSocket Connection Closed. Status: {}", status);
-        this.currentSession = null;
     }
 }

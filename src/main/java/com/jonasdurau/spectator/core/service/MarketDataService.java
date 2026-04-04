@@ -86,11 +86,11 @@ public class MarketDataService {
             startRealtimeStream(s, "4h");
 
             // 3. Conecta no WebSocket de Order Book (Depth 5 Níveis)
-            new BinanceDepthWebSocketClient(objectMapper, orderBookService).connect(s);
+            new BinanceDepthWebSocketClient(objectMapper, orderBookService, s).connect();
 
             // 4. Conecta nos WebSockets de Order Flow (AggTrades e MarkPrice)
-            new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService, this::onPriceTick).connect(s);
-            new BinanceMarkPriceWebSocketClient(objectMapper, orderFlowService).connect(s);
+            new BinanceAggTradeWebSocketClient(objectMapper, orderFlowService, this::onPriceTick, s).connect();
+            new BinanceMarkPriceWebSocketClient(objectMapper, orderFlowService, s).connect();
         }
     }
 
@@ -154,7 +154,7 @@ public class MarketDataService {
     private void startRealtimeStream(String symbol, String timeframe) {
         log.info("Opening WebSocket stream for {} ({})...", symbol, timeframe);
 
-        new BinanceWebSocketClient(objectMapper, (incomingCandle, isClosed) -> {
+        BinanceWebSocketClient wsClient = new BinanceWebSocketClient(objectMapper, (incomingCandle, isClosed) -> {
             candleRepository.upsert(incomingCandle);
 
             if ("1h".equals(timeframe)) {
@@ -186,6 +186,8 @@ public class MarketDataService {
                     log.info("Candle CLOSED: {} 4H tick | Price: {}", incomingCandle.getSymbol(), incomingCandle.getClose());
                 }
             }
-        }).connect(symbol, timeframe);
+        }, symbol, timeframe);
+
+        wsClient.connect();
     }
 }

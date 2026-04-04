@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 @Service
-@ConditionalOnProperty(name = "spectator.mode.backtest-only", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(name = "spectator.trading.live-enabled", havingValue = "false", matchIfMissing = true)
 public class PaperTradingExecutionService implements OrderExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(PaperTradingExecutionService.class);

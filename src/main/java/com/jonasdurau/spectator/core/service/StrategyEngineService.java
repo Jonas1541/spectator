@@ -25,17 +25,20 @@ public class StrategyEngineService {
     private final PositionRepository positionRepository;
     private final RiskManagerService riskManagerService;
     private final OrderFlowService orderFlowService;
+    private final AccountEquityProvider accountEquityProvider;
     private final List<TradingStrategy> strategies;
 
     public StrategyEngineService(OrderExecutionService orderExecutionService, 
                                  PositionRepository positionRepository,
                                  RiskManagerService riskManagerService,
                                  OrderFlowService orderFlowService,
+                                 AccountEquityProvider accountEquityProvider,
                                  List<TradingStrategy> strategies) {
         this.orderExecutionService = orderExecutionService;
         this.positionRepository = positionRepository;
         this.riskManagerService = riskManagerService;
         this.orderFlowService = orderFlowService;
+        this.accountEquityProvider = accountEquityProvider;
         this.strategies = strategies;
     }
 
@@ -65,20 +68,20 @@ public class StrategyEngineService {
                     log.info("Strategy [{}] Hit Rate Engine: {}/{} wins ({}%).", strategy.getName(), totalWinners, totalClosed, String.format("%.2f", dynamicWinProb * 100));
                 }
                 
-                // MOCK Exposure calculation
-                double MOCK_ACCOUNT_EQUITY = 10000.0;
+                // Equity real ou simulado via AccountEquityProvider (satisfaz DIP)
+                double accountEquity = accountEquityProvider.getAccountEquity();
                 double currentExposure = 0.0;
                 for (Position p : openPositions) {
                     currentExposure += (p.getQuantity() * p.getEntryPrice());
                 }
-                double currentExposurePct = currentExposure / MOCK_ACCOUNT_EQUITY;
+                double currentExposurePct = currentExposure / accountEquity;
 
                 double quantity = riskManagerService.calculateKellyPositionSize(
                         currentPrice, 
                         signal.stopLoss(), 
                         signal.takeProfit(), 
                         dynamicWinProb, 
-                        MOCK_ACCOUNT_EQUITY, 
+                        accountEquity, 
                         currentExposurePct
                 );
 

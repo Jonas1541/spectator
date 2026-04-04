@@ -37,6 +37,9 @@ out/
 ### VS Code ###
 .vscode/
 
+### Secrets ###
+.env
+
 # Vaadin
 node_modules/
 src/main/frontend/generated
