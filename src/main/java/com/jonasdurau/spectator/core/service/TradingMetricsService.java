@@ -27,7 +27,7 @@ public class TradingMetricsService {
     private final Counter stopLossHits;
     private final Counter takeProfitHits;
     private final Counter panicCloses;
-    private final Counter tp1Hits;
+
     private final Counter liveOrdersSuccess;
     private final Counter liveOrdersFailed;
     private final Counter websocketReconnects;
@@ -54,9 +54,6 @@ public class TradingMetricsService {
                 .description("Total de fechamentos por mudança de regime (panic close)")
                 .register(registry);
 
-        this.tp1Hits = Counter.builder("spectator.positions.tp1_hit")
-                .description("Total de partial take profits (TP1) disparados")
-                .register(registry);
 
         this.liveOrdersSuccess = Counter.builder("spectator.orders.live.success")
                 .description("Total de ordens live executadas com sucesso")
@@ -95,9 +92,7 @@ public class TradingMetricsService {
         panicCloses.increment();
     }
 
-    public void recordTp1Hit() {
-        tp1Hits.increment();
-    }
+
 
     public void recordLiveOrderSuccess() {
         liveOrdersSuccess.increment();

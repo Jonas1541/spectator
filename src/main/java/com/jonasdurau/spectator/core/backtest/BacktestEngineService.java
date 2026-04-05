@@ -225,32 +225,6 @@ public class BacktestEngineService {
                         }
                     }
 
-                    // --- Partial TP1 Check ---
-                    if (!pos.tp1Triggered && pos.tp1Price != null) {
-                        boolean tp1Hit = false;
-                        if (pos.currentSide == TradeSide.LONG && currentCandle.getHigh() >= pos.tp1Price) tp1Hit = true;
-                        else if (pos.currentSide == TradeSide.SHORT && currentCandle.getLow() <= pos.tp1Price) tp1Hit = true;
-
-                        if (tp1Hit) {
-                            double partialPnl;
-                            if (pos.currentSide == TradeSide.LONG) {
-                                partialPnl = (pos.tp1Price - pos.entryPrice) * pos.tp1Quantity;
-                            } else {
-                                partialPnl = (pos.entryPrice - pos.tp1Price) * pos.tp1Quantity;
-                            }
-                            double partialFees = (pos.entryPrice * pos.tp1Quantity * 0.0005) + (pos.tp1Price * pos.tp1Quantity * 0.0002);
-                            partialPnl -= partialFees;
-                            globalCapital += partialPnl;
-                            acc.tradeReturns.add(partialPnl);
-                            if (partialPnl > 0) { acc.winningTrades++; acc.grossProfit += partialPnl; }
-                            else { acc.losingTrades++; acc.grossLoss += Math.abs(partialPnl); }
-
-                            pos.positionQuantity -= pos.tp1Quantity;
-                            pos.tp1Triggered = true;
-                            pos.stopLoss = pos.entryPrice;
-                            tradeLog.add(new BacktestTrade(currentCandle.getTime(), pos.currentSide, false, pos.tp1Price, partialPnl));
-                        }
-                    }
                 }
             }
 
@@ -329,8 +303,7 @@ public class BacktestEngineService {
                     pos.initialStopLoss = pos.stopLoss;
                     pos.currentBreakevenMultiplier = signal.breakevenMultiplier();
                     pos.currentTrailingMultiplier = signal.trailingMultiplier();
-                    pos.tp1Triggered = false;
-                    pos.tp1Price = signal.tp1Price();
+
                     pos.currentStrategyName = null;
 
                     // Resolve which strategy fired
@@ -378,12 +351,6 @@ public class BacktestEngineService {
                     // Recalculate exposure after this entry
                     currentExposurePct = recalculateExposure(positionStates, globalCapital);
 
-                    // Calculate TP1 quantity
-                    if (pos.tp1Price != null && signal.tp1SizePct() != null) {
-                        pos.tp1Quantity = pos.positionQuantity * signal.tp1SizePct();
-                    } else {
-                        pos.tp1Quantity = 0.0;
-                    }
 
                     tradeLog.add(new BacktestTrade(currentCandle.getTime(), pos.currentSide, true, pos.entryPrice, 0.0));
                 }
@@ -553,9 +520,7 @@ public class BacktestEngineService {
         double initialStopLoss = 0.0;
         Double currentBreakevenMultiplier = null;
         Double currentTrailingMultiplier = null;
-        Double tp1Price = null;
-        double tp1Quantity = 0.0;
-        boolean tp1Triggered = false;
+
         String currentStrategyName = null;
         MarketRegime lastRegime = null;
     }

@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS market_candles (
     low         DOUBLE PRECISION NOT NULL,
     close       DOUBLE PRECISION NOT NULL,
     volume      DOUBLE PRECISION NOT NULL,
+    quote_asset_volume DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    taker_buy_base_asset_volume DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     
     -- Chave primária composta
     CONSTRAINT pk_market_candles PRIMARY KEY (symbol, timeframe, time)
@@ -31,6 +33,7 @@ SELECT add_compression_policy('market_candles', INTERVAL '7 days');
 CREATE TABLE positions (
     id UUID PRIMARY KEY,
     symbol VARCHAR(20) NOT NULL,
+    strategy_name VARCHAR(100),
     side VARCHAR(10) NOT NULL,
     entry_price DOUBLE PRECISION NOT NULL,
     quantity DOUBLE PRECISION NOT NULL,

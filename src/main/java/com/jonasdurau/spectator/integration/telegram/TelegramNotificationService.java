@@ -85,7 +85,6 @@ public class TelegramNotificationService implements NotificationService {
             case "STOP_LOSS" -> "🔴";
             case "TAKE_PROFIT" -> "🟢";
             case "PANIC_CLOSE" -> "🚨";
-            case "TP1_PARTIAL" -> "💰";
             default -> pnl >= 0 ? "✅" : "❌";
         };
     }

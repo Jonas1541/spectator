@@ -41,14 +41,6 @@ public class Position {
     private Double breakevenMultiplier;
     private Double trailingMultiplier;
 
-    @Column(name = "tp1_price")
-    private Double tp1Price;
-
-    @Column(name = "tp1_quantity")
-    private Double tp1Quantity;
-
-    @Column(name = "tp1_triggered")
-    private boolean tp1Triggered = false;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -207,29 +199,6 @@ public class Position {
         this.trailingMultiplier = trailingMultiplier;
     }
 
-    public Double getTp1Price() {
-        return tp1Price;
-    }
-
-    public void setTp1Price(Double tp1Price) {
-        this.tp1Price = tp1Price;
-    }
-
-    public Double getTp1Quantity() {
-        return tp1Quantity;
-    }
-
-    public void setTp1Quantity(Double tp1Quantity) {
-        this.tp1Quantity = tp1Quantity;
-    }
-
-    public boolean isTp1Triggered() {
-        return tp1Triggered;
-    }
-
-    public void setTp1Triggered(boolean tp1Triggered) {
-        this.tp1Triggered = tp1Triggered;
-    }
 
     public void setQuantity(double quantity) {
         this.quantity = quantity;

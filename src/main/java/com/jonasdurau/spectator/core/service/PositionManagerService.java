@@ -166,37 +166,6 @@ public class PositionManagerService {
                 positionRepository.save(position);
             }
 
-            // --- PARTIAL TAKE PROFIT (TP1) ---
-            if (!position.isTp1Triggered() && position.getTp1Price() != null && position.getTp1Quantity() != null) {
-                boolean tp1Hit = false;
-                if (position.getSide() == TradeSide.LONG && currentPrice >= position.getTp1Price()) {
-                    tp1Hit = true;
-                } else if (position.getSide() == TradeSide.SHORT && currentPrice <= position.getTp1Price()) {
-                    tp1Hit = true;
-                }
-                
-                if (tp1Hit) {
-                    double partialQty = position.getTp1Quantity();
-                    double remainingQty = position.getQuantity() - partialQty;
-                    
-                    log.info("💰 TP1 HIT! Partially closing {} of {} at {}. Remaining: {}", partialQty, position.getSymbol(), currentPrice, remainingQty);
-                    
-                    TradeSide exitSide = position.getSide() == TradeSide.LONG ? TradeSide.SHORT : TradeSide.LONG;
-                    Trade partialTrade = new Trade(position, position.getSymbol(), exitSide, currentPrice, partialQty, Instant.now());
-                    position.addTrade(partialTrade);
-                    tradeRepository.save(partialTrade);
-                    
-                    position.setQuantity(remainingQty);
-                    position.setTp1Triggered(true);
-                    position.setStopLoss(position.getEntryPrice());
-                    positionRepository.save(position);
-                    log.info("✅ Stop moved to Breakeven after TP1. New quantity: {}", remainingQty);
-
-                    metricsService.recordTp1Hit();
-                    notificationService.notifyTradeExit(
-                            position.getSymbol(), "TP1_PARTIAL", position.getSide().name(), currentPrice, 0.0);
-                }
-            }
 
             // --- PANIC CLOSE (HMM Regime Shift) ---
             if (position.getStrategyName() != null && position.getStrategyName().toLowerCase().contains("pullback")) {

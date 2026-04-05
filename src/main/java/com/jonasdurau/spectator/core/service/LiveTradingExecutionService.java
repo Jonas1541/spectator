@@ -40,8 +40,7 @@ public class LiveTradingExecutionService implements OrderExecutionService {
     @Override
     public void executeMarketOrder(String strategyName, String symbol, TradeSide side, double quantity,
                                     double currentPrice, Double stopLoss, Double takeProfit,
-                                    Double breakevenMultiplier, Double trailingMultiplier,
-                                    Double tp1Price, Double tp1SizePct) {
+                                    Double breakevenMultiplier, Double trailingMultiplier) {
 
         log.info("[LIVE TRADING] Sending {} {} MARKET order for {} (Qty: {})...", strategyName, side, symbol, quantity);
 
@@ -66,15 +65,10 @@ public class LiveTradingExecutionService implements OrderExecutionService {
             metricsService.recordLiveOrderSuccess();
 
             // 3. Registra a posição internamente para tracking de SL/TP/trailing
-            com.jonasdurau.spectator.core.domain.Position position = positionManagerService.openPosition(
+            positionManagerService.openPosition(
                     strategyName, symbol, side, executionPrice, executedQuantity,
                     stopLoss, takeProfit, breakevenMultiplier, trailingMultiplier);
 
-            if (tp1Price != null && tp1SizePct != null) {
-                position.setTp1Price(tp1Price);
-                position.setTp1Quantity(executedQuantity * tp1SizePct);
-                position.setTp1Triggered(false);
-            }
 
         } catch (Exception e) {
             log.error("🚨 [LIVE TRADING] FAILED to execute {} {} order for {} (Qty: {}): {}",

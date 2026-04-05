@@ -21,7 +21,7 @@ public class PaperTradingExecutionService implements OrderExecutionService {
 
     @Override
     public void executeMarketOrder(String strategyName, String symbol, TradeSide side, double quantity, double currentPrice, Double stopLoss,
-            Double takeProfit, Double breakevenMultiplier, Double trailingMultiplier, Double tp1Price, Double tp1SizePct) {
+            Double takeProfit, Double breakevenMultiplier, Double trailingMultiplier) {
         
         double executionPrice = currentPrice;
         
@@ -45,13 +45,8 @@ public class PaperTradingExecutionService implements OrderExecutionService {
         }
 
         log.info("[PAPER TRADING / BACKTEST] Executing {} {} order for {} at {}", strategyName, side, symbol, executionPrice);
-        com.jonasdurau.spectator.core.domain.Position position = positionManagerService.openPosition(strategyName, symbol, side, executionPrice, quantity, stopLoss, takeProfit, breakevenMultiplier, trailingMultiplier);
+        positionManagerService.openPosition(strategyName, symbol, side, executionPrice, quantity, stopLoss, takeProfit, breakevenMultiplier, trailingMultiplier);
         
-        if (tp1Price != null && tp1SizePct != null) {
-            position.setTp1Price(tp1Price);
-            position.setTp1Quantity(quantity * tp1SizePct);
-            position.setTp1Triggered(false);
-            // Position is already saved in openPosition, so we need to re-save with tp1 data
-        }
+
     }
 }
