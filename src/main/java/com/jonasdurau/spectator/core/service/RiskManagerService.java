@@ -9,9 +9,9 @@ public class RiskManagerService {
 
     private static final Logger log = LoggerFactory.getLogger(RiskManagerService.class);
     
-    private static final double KELLY_FRACTION_MULTIPLIER = 0.5; // 1/20th Kelly (to prevent massive leverage fee drag)
-    private static final double MAX_EXPOSURE_PERCENTAGE = 0.30; // 30% Max Global Exposure
-    private static final double MAX_SINGLE_TRADE_RISK = 0.03; // 2% absolute risk cap per trade
+    private static final double KELLY_FRACTION_MULTIPLIER = 0.5; // Half-Kelly (optimizes growth while limiting capital volatility)
+    private static final double MAX_EXPOSURE_PERCENTAGE = 1.0; // 100% Max Global Exposure (1x leverage) to prevent liquidation risk
+    private static final double MAX_SINGLE_TRADE_RISK = 0.02; // 2% absolute risk cap per trade to absorb flash crashes
 
     /**
      * Calculates the position size based on the Fractional Kelly Criterion.
@@ -55,7 +55,7 @@ public class RiskManagerService {
         
         // 5. Max Exposure Validator
         if (currentExposurePercentage >= MAX_EXPOSURE_PERCENTAGE) {
-            log.warn("Global Max Exposure (30%) reached. Current: {}. Rejecting trade.", currentExposurePercentage);
+            log.warn("Global Max Exposure ({}%) reached. Current: {}. Rejecting trade.", (MAX_EXPOSURE_PERCENTAGE * 100), (currentExposurePercentage * 100));
             return 0.0;
         }
         
