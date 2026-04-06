@@ -284,17 +284,6 @@ public class BacktestEngineService {
                         continue; // Warm-up block: allow indicators to build state, but prevent execution
                     }
 
-                    // Correlation Lock dinâmico: calcula o estado exato da carteira NESTE momento
-                    long currentOpenLongs = positionStates.values().stream().filter(s -> s.inPosition && s.currentSide == TradeSide.LONG).count();
-                    long currentOpenShorts = positionStates.values().stream().filter(s -> s.inPosition && s.currentSide == TradeSide.SHORT).count();
-
-                    if (signal.side() == TradeSide.LONG && currentOpenLongs > 0) {
-                        continue; // Correlation Lock: Já existe uma posição LONG aberta no portfólio
-                    }
-                    if (signal.side() == TradeSide.SHORT && currentOpenShorts > 0) {
-                        continue; // Correlation Lock: Já existe uma posição SHORT aberta no portfólio
-                    }
-
                     pos.inPosition = true;
                     pos.currentSide = signal.side();
                     pos.entryPrice = currentCandle.getClose();
