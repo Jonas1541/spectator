@@ -8,9 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.indicators.RSIIndicator;
+import org.ta4j.core.indicators.ATRIndicator;
 import org.ta4j.core.indicators.averages.SMAIndicator;
-
 import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
@@ -18,30 +17,23 @@ import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.HighPriceIndicator;
 import org.ta4j.core.indicators.helpers.LowPriceIndicator;
 import org.ta4j.core.indicators.helpers.OpenPriceIndicator;
-
 import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 
 import java.util.List;
 
-//@Component
+@Component
 public class BollingerPinBarStrategy implements TradingStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(BollingerPinBarStrategy.class);
 
-    private static final int RSI_PERIOD = 14;
-    private static final double RSI_OVERSOLD = 25.0;
-    private static final double RSI_OVERBOUGHT = 75.0;
-    
     private static final int BB_PERIOD = 20;
     private static final double BB_MULTIPLIER = 2.0;
-    
-
 
     public BollingerPinBarStrategy() {}
 
     @Override
     public String getName() {
-        return "1H BB Pin Bar Reversion";
+        return "1H BB Pin Bar Mean Reversion";
     }
 
     @Override
@@ -50,11 +42,12 @@ public class BollingerPinBarStrategy implements TradingStrategy {
             return TradeSignal.ignore();
         }
 
-        if (recent1hCandles.size() <= BB_PERIOD) {
+        // Necessita de 50 candles para a Média do ATR
+        if (recent1hCandles.size() <= Math.max(BB_PERIOD, 50)) {
             return TradeSignal.ignore();
         }
 
-        BarSeries series = Ta4jMapper.toBarSeries(recent1hCandles, "Bitcoin_1H");
+        BarSeries series = Ta4jMapper.toBarSeries(recent1hCandles, "Crypto_1H");
         int endIndex = series.getEndIndex();
 
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
@@ -62,15 +55,20 @@ public class BollingerPinBarStrategy implements TradingStrategy {
         HighPriceIndicator highPrice = new HighPriceIndicator(series);
         LowPriceIndicator lowPrice = new LowPriceIndicator(series);
         
-        RSIIndicator rsi = new RSIIndicator(closePrice, RSI_PERIOD);
-        double currentRsi = rsi.getValue(endIndex).doubleValue();
-
         SMAIndicator sma20 = new SMAIndicator(closePrice, BB_PERIOD);
         StandardDeviationIndicator stdDev = new StandardDeviationIndicator(closePrice, BB_PERIOD);
-        BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(sma20);
-        BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(bbMiddle, stdDev, series.numFactory().numOf(BB_MULTIPLIER));
-        BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(bbMiddle, stdDev, series.numFactory().numOf(BB_MULTIPLIER));
+        BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(new BollingerBandsMiddleIndicator(sma20), stdDev, series.numFactory().numOf(BB_MULTIPLIER));
+        BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(new BollingerBandsMiddleIndicator(sma20), stdDev, series.numFactory().numOf(BB_MULTIPLIER));
+        
+        ATRIndicator atr = new ATRIndicator(series, 14);
+        SMAIndicator atrSma = new SMAIndicator(atr, 50);
 
+        // DICA 2.4: Filtro de Volatilidade Morta. Se o ATR atual estiver abaixo da média histórica, abortar.
+        if (atr.getValue(endIndex).doubleValue() < atrSma.getValue(endIndex).doubleValue()) {
+            return TradeSignal.ignore();
+        }
+
+        double currentAtr = atr.getValue(endIndex).doubleValue();
         double cPrice = closePrice.getValue(endIndex).doubleValue();
         double oPrice = openPrice.getValue(endIndex).doubleValue();
         double currentLow = lowPrice.getValue(endIndex).doubleValue();
@@ -78,41 +76,39 @@ public class BollingerPinBarStrategy implements TradingStrategy {
 
         double currentBbLower = bbLower.getValue(endIndex).doubleValue();
         double currentBbUpper = bbUpper.getValue(endIndex).doubleValue();
+        double currentMiddle = sma20.getValue(endIndex).doubleValue();
 
-        // === LONG: Pin Bar na Banda Inferior (Vela Única) ===
-        // A mínima tocou/caiu ABAIXO da banda inferior, mas o close recuperou ACIMA dela, numa vela de alta
-        boolean longWickSweep = currentLow < currentBbLower && cPrice > currentBbLower && cPrice > oPrice;
+        double candleSize = currentHigh - currentLow;
+        if (candleSize == 0) return TradeSignal.ignore();
 
-        if (longWickSweep && currentRsi < RSI_OVERSOLD) {
-            // Stop Loss no fundo exato do Pin Bar (pavio)
-            double stopLoss = lowPrice.getValue(endIndex).doubleValue();
+        double lowerWick = Math.min(cPrice, oPrice) - currentLow;
+        double upperWick = currentHigh - Math.max(cPrice, oPrice);
+
+        boolean isBullishPinBar = (lowerWick / candleSize) > 0.6 && cPrice >= oPrice;
+        boolean isBearishPinBar = (upperWick / candleSize) > 0.6 && cPrice <= oPrice;
+
+        // === LONG: Mean Reversion ===
+        if (currentLow < currentBbLower && isBullishPinBar) {
+            double stopLoss = currentLow - (currentAtr * 0.75); 
             double risk = cPrice - stopLoss;
-            // Take Profit projetado a 1.5x o risco
-            double takeProfit = cPrice + (risk * 1.5);
-            
-            log.info("[{}] PIN BAR LONG! Low ({}) swept BB Lower ({}), close ({}) recovered above. RSI: {}. SL: {}, TP: {}", 
-                     getName(), String.format("%.2f", currentLow), String.format("%.2f", currentBbLower), String.format("%.2f", cPrice), 
-                     String.format("%.1f", currentRsi), String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
+            double reward = currentMiddle - cPrice; 
 
-            return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, null, 0.60);
+            if (risk > 0 && reward >= (risk * 1.0)) { 
+                log.info("[{}] MEAN REVERSION LONG! SL: {}, Target: {}", getName(), stopLoss, currentMiddle);
+                return TradeSignal.enter(TradeSide.LONG, stopLoss, currentMiddle, 1.0, null, null); 
+            }
         }
 
-        // === SHORT: Pin Bar na Banda Superior (Vela Única) ===
-        // A máxima tocou/subiu ACIMA da banda superior, mas o close retraiu ABAIXO dela, numa vela de baixa
-        boolean shortWickSweep = currentHigh > currentBbUpper && cPrice < currentBbUpper && cPrice < oPrice;
-
-        if (shortWickSweep && currentRsi > RSI_OVERBOUGHT) {
-            // Stop Loss no topo exato do Pin Bar (pavio)
-            double stopLoss = highPrice.getValue(endIndex).doubleValue();
+        // === SHORT: Mean Reversion ===
+        if (currentHigh > currentBbUpper && isBearishPinBar) {
+            double stopLoss = currentHigh + (currentAtr * 0.75); 
             double risk = stopLoss - cPrice;
-            // Take Profit projetado a 1.5x o risco
-            double takeProfit = cPrice - (risk * 1.5);
-            
-            log.info("[{}] PIN BAR SHORT! High ({}) swept BB Upper ({}), close ({}) recovered below. RSI: {}. SL: {}, TP: {}", 
-                     getName(), String.format("%.2f", currentHigh), String.format("%.2f", currentBbUpper), String.format("%.2f", cPrice), 
-                     String.format("%.1f", currentRsi), String.format("%.2f", stopLoss), String.format("%.2f", takeProfit));
+            double reward = cPrice - currentMiddle;
 
-            return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, null, 0.60);
+            if (risk > 0 && reward >= (risk * 1.0)) {
+                log.info("[{}] MEAN REVERSION SHORT! SL: {}, Target: {}", getName(), stopLoss, currentMiddle);
+                return TradeSignal.enter(TradeSide.SHORT, stopLoss, currentMiddle, 1.0, null, null); 
+            }
         }
 
         return TradeSignal.ignore();
