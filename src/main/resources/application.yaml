@@ -58,7 +58,7 @@ vaadin:
 
 # Configurações do Spectator
 spectator:
-  symbols: BTCUSDT,ETHUSDT,SOLUSDT
+  symbols: BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,AVAXUSDT,LINKUSDT,NEARUSDT,INJUSDT,RENDERUSDT,DOGEUSDT
   mode:
     backtest-only: false
   trading:
