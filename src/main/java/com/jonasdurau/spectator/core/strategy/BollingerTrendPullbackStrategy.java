@@ -27,7 +27,7 @@ public class BollingerTrendPullbackStrategy implements TradingStrategy {
     private static final Logger log = LoggerFactory.getLogger(BollingerTrendPullbackStrategy.class);
 
     private static final int BB_PERIOD = 20;
-    private static final double BB_MULTIPLIER = 2.0;
+    private static final double BB_MULTIPLIER = 1.5;
 
     public BollingerTrendPullbackStrategy() {}
 
@@ -73,28 +73,29 @@ public class BollingerTrendPullbackStrategy implements TradingStrategy {
 
         double candleSize = currentHigh - currentLow;
         
-        // Filtro de vela real
-        if (candleSize == 0 || candleSize < (currentAtr * 0.5)) { 
+        // Mantemos o filtro para evitar velas "mortas"
+        if (candleSize == 0 || candleSize < (currentAtr * 0.3)) { 
             return TradeSignal.ignore();
         }
 
         double lowerWick = Math.min(cPrice, oPrice) - currentLow;
         double upperWick = currentHigh - Math.max(cPrice, oPrice);
 
-        // Exige fechamento forte a favor da rejeição
-        boolean isBullishPinBar = (lowerWick / candleSize) >= 0.5 && cPrice >= oPrice;
-        boolean isBearishPinBar = (upperWick / candleSize) >= 0.5 && cPrice <= oPrice;
+        // MUDANÇA DE OURO: 
+        // 1. Pavio de 1/3 (0.33) já configura rejeição.
+        // 2. REMOVEMOS a obrigação de fechar verde (LONG) ou vermelho (SHORT). 
+        // O que importa é a varredura da liquidez na banda (o tamanho do pavio).
+        boolean isBullishRejection = (lowerWick / candleSize) >= 0.33;
+        boolean isBearishRejection = (upperWick / candleSize) >= 0.33;
 
         // === LONG: Pullback numa Tendência de ALTA ===
         if (current4hRegime == MarketRegime.TRENDING_UP) {
-            // Preço desabou até a banda inferior (Oversold na tendência) e deixou Pin Bar
-            if (currentLow < currentBbLower && isBullishPinBar) {
-                // Retornamos ao SL conservador e assertivo da EMA (0.5 do ATR abaixo do pavio)
+            // Preço desabou até a banda inferior e deixou rejeição (pavio)
+            if (currentLow < currentBbLower && isBullishRejection) {
                 double stopLoss = currentLow - (currentAtr * 0.5); 
                 double risk = cPrice - stopLoss;
                 if (risk <= 0) return TradeSignal.ignore();
 
-                // Como estamos a favor da tendência, usamos o trailing stop infinito
                 double takeProfit = cPrice * 10.0; 
                 double trailingMultiplier = (currentAtr * 2.0) / risk;
 
@@ -105,14 +106,12 @@ public class BollingerTrendPullbackStrategy implements TradingStrategy {
 
         // === SHORT: Pullback numa Tendência de BAIXA ===
         if (current4hRegime == MarketRegime.TRENDING_DOWN) {
-            // Preço espirrou até a banda superior (Overbought na tendência) e deixou Pin Bar
-            if (currentHigh > currentBbUpper && isBearishPinBar) {
-                // SL 0.5 do ATR acima do pavio
+            // Preço espirrou até a banda superior e deixou rejeição (pavio)
+            if (currentHigh > currentBbUpper && isBearishRejection) {
                 double stopLoss = currentHigh + (currentAtr * 0.5); 
                 double risk = stopLoss - cPrice;
                 if (risk <= 0) return TradeSignal.ignore();
 
-                // Trailing stop infinito a favor da tendência
                 double takeProfit = 0.0001; 
                 double trailingMultiplier = (currentAtr * 2.0) / risk;
 
