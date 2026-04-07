@@ -28,7 +28,6 @@ public class BollingerBreakoutStrategy implements TradingStrategy {
     private static final double BB_MULTIPLIER = 1.5;
     private static final double VOLUME_FACTOR = 1.3;      // volume deve ser > média * este fator
     private static final double STOP_ATR_MULTIPLIER = 0.75; // stop mais largo (antes 0.5)
-    private static final double TAKE_PROFIT_RISK_RATIO = 2.5; // take profit = risco * 2.5 (antes 3.0)
 
     public BollingerBreakoutStrategy() {}
 
@@ -72,8 +71,8 @@ public class BollingerBreakoutStrategy implements TradingStrategy {
 
         // === LONG BREAKOUT ===
         if (cPrice > currentUpper && isHighVolumeBreakout) {
-            // Permite LONG quando o regime NÃO é TRENDING_DOWN (ou seja, SIDEWAYS ou UP)
-            if (current4hRegime == MarketRegime.TRENDING_DOWN) {
+            // SUCESSO DA EMA: Operar a favor da tendência forte apenas
+            if (current4hRegime != MarketRegime.TRENDING_UP) {
                 return TradeSignal.ignore();
             }
 
@@ -81,18 +80,19 @@ public class BollingerBreakoutStrategy implements TradingStrategy {
             double risk = cPrice - stopLoss;
             if (risk <= 0) return TradeSignal.ignore();
 
-            double takeProfit = cPrice + (risk * TAKE_PROFIT_RISK_RATIO);
+            // SUCESSO DA EMA: Trailing Stop ao invés de alvo fixo
+            double takeProfit = cPrice * 10.0; // Alvo virtual alto
+            double trailingMultiplier = (currentAtr * 2.0) / risk; // Mesmo trailing da EMA
 
-            log.info("[{}] LONG BREAKOUT! Volume: {}x. SL: {:.2f}, TP: {:.2f}",
-                     getName(), currentVol / avgVol, stopLoss, takeProfit);
+            log.info("[{}] LONG BREAKOUT! Volume: {}x. SL: {:.2f}, ATR: {}",
+                     getName(), currentVol / avgVol, stopLoss, String.format("%.2f", currentAtr));
 
-            return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, 1.0, null, null);
+            return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, trailingMultiplier, null);
         }
 
         // === SHORT BREAKOUT ===
         if (cPrice < currentLower && isHighVolumeBreakout) {
-            // Permite SHORT quando o regime NÃO é TRENDING_UP (SIDEWAYS ou DOWN)
-            if (current4hRegime == MarketRegime.TRENDING_UP) {
+            if (current4hRegime != MarketRegime.TRENDING_DOWN) {
                 return TradeSignal.ignore();
             }
 
@@ -100,12 +100,13 @@ public class BollingerBreakoutStrategy implements TradingStrategy {
             double risk = stopLoss - cPrice;
             if (risk <= 0) return TradeSignal.ignore();
 
-            double takeProfit = cPrice - (risk * TAKE_PROFIT_RISK_RATIO);
+            double takeProfit = 0.0001; // Alvo virtual próximo de 0
+            double trailingMultiplier = (currentAtr * 2.0) / risk;
 
-            log.info("[{}] SHORT BREAKOUT! Volume: {}x. SL: {:.2f}, TP: {:.2f}",
-                     getName(), currentVol / avgVol, stopLoss, takeProfit);
+            log.info("[{}] SHORT BREAKOUT! Volume: {}x. SL: {:.2f}, ATR: {}",
+                     getName(), currentVol / avgVol, stopLoss, String.format("%.2f", currentAtr));
 
-            return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, 1.0, null, null);
+            return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, trailingMultiplier, null);
         }
 
         return TradeSignal.ignore();
