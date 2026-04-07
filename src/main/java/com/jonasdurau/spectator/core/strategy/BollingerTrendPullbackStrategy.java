@@ -22,28 +22,28 @@ import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 import java.util.List;
 
 @Component
-public class BollingerPinBarStrategy implements TradingStrategy {
+public class BollingerTrendPullbackStrategy implements TradingStrategy {
 
-    private static final Logger log = LoggerFactory.getLogger(BollingerPinBarStrategy.class);
+    private static final Logger log = LoggerFactory.getLogger(BollingerTrendPullbackStrategy.class);
 
     private static final int BB_PERIOD = 20;
     private static final double BB_MULTIPLIER = 2.0;
 
-    public BollingerPinBarStrategy() {}
+    public BollingerTrendPullbackStrategy() {}
 
     @Override
     public String getName() {
-        return "1H BB Pin Bar Mean Reversion";
+        return "1H BB Trend Pullback";
     }
 
     @Override
     public TradeSignal evaluate(List<Candle> recent1hCandles, MarketRegime current4hRegime, double currentPrice, OrderFlowContext orderFlowContext) {
-        if (current4hRegime != MarketRegime.SIDEWAYS) {
+        // Vamos operar retrações (pullbacks) extremas dentro de tendências estabelecidas!
+        if (current4hRegime == MarketRegime.SIDEWAYS) {
             return TradeSignal.ignore();
         }
 
-        // Necessita de 50 candles para a Média do ATR
-        if (recent1hCandles.size() <= Math.max(BB_PERIOD, 50)) {
+        if (recent1hCandles.size() <= BB_PERIOD) {
             return TradeSignal.ignore();
         }
 
@@ -61,12 +61,6 @@ public class BollingerPinBarStrategy implements TradingStrategy {
         BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(new BollingerBandsMiddleIndicator(sma20), stdDev, series.numFactory().numOf(BB_MULTIPLIER));
         
         ATRIndicator atr = new ATRIndicator(series, 14);
-        SMAIndicator atrSma = new SMAIndicator(atr, 50);
-
-        // DICA 2.4: Filtro de Volatilidade Morta. Se o ATR atual estiver abaixo da média histórica, abortar.
-        if (atr.getValue(endIndex).doubleValue() < atrSma.getValue(endIndex).doubleValue()) {
-            return TradeSignal.ignore();
-        }
 
         double currentAtr = atr.getValue(endIndex).doubleValue();
         double cPrice = closePrice.getValue(endIndex).doubleValue();
@@ -76,38 +70,54 @@ public class BollingerPinBarStrategy implements TradingStrategy {
 
         double currentBbLower = bbLower.getValue(endIndex).doubleValue();
         double currentBbUpper = bbUpper.getValue(endIndex).doubleValue();
-        double currentMiddle = sma20.getValue(endIndex).doubleValue();
 
         double candleSize = currentHigh - currentLow;
-        if (candleSize == 0) return TradeSignal.ignore();
+        
+        // Filtro de vela real
+        if (candleSize == 0 || candleSize < (currentAtr * 0.5)) { 
+            return TradeSignal.ignore();
+        }
 
         double lowerWick = Math.min(cPrice, oPrice) - currentLow;
         double upperWick = currentHigh - Math.max(cPrice, oPrice);
 
-        boolean isBullishPinBar = (lowerWick / candleSize) > 0.6 && cPrice >= oPrice;
-        boolean isBearishPinBar = (upperWick / candleSize) > 0.6 && cPrice <= oPrice;
+        // Exige fechamento forte a favor da rejeição
+        boolean isBullishPinBar = (lowerWick / candleSize) >= 0.5 && cPrice >= oPrice;
+        boolean isBearishPinBar = (upperWick / candleSize) >= 0.5 && cPrice <= oPrice;
 
-        // === LONG: Mean Reversion ===
-        if (currentLow < currentBbLower && isBullishPinBar) {
-            double stopLoss = currentLow - (currentAtr * 0.75); 
-            double risk = cPrice - stopLoss;
-            double reward = currentMiddle - cPrice; 
+        // === LONG: Pullback numa Tendência de ALTA ===
+        if (current4hRegime == MarketRegime.TRENDING_UP) {
+            // Preço desabou até a banda inferior (Oversold na tendência) e deixou Pin Bar
+            if (currentLow < currentBbLower && isBullishPinBar) {
+                // Retornamos ao SL conservador e assertivo da EMA (0.5 do ATR abaixo do pavio)
+                double stopLoss = currentLow - (currentAtr * 0.5); 
+                double risk = cPrice - stopLoss;
+                if (risk <= 0) return TradeSignal.ignore();
 
-            if (risk > 0 && reward >= (risk * 1.0)) { 
-                log.info("[{}] MEAN REVERSION LONG! SL: {}, Target: {}", getName(), stopLoss, currentMiddle);
-                return TradeSignal.enter(TradeSide.LONG, stopLoss, currentMiddle, 1.0, null, null); 
+                // Como estamos a favor da tendência, usamos o trailing stop infinito
+                double takeProfit = cPrice * 10.0; 
+                double trailingMultiplier = (currentAtr * 2.0) / risk;
+
+                log.info("[{}] LONG Trend Pullback! SL: {:.2f}, ATR: {:.2f}", getName(), stopLoss, currentAtr);
+                return TradeSignal.enter(TradeSide.LONG, stopLoss, takeProfit, null, trailingMultiplier, null); 
             }
         }
 
-        // === SHORT: Mean Reversion ===
-        if (currentHigh > currentBbUpper && isBearishPinBar) {
-            double stopLoss = currentHigh + (currentAtr * 0.75); 
-            double risk = stopLoss - cPrice;
-            double reward = cPrice - currentMiddle;
+        // === SHORT: Pullback numa Tendência de BAIXA ===
+        if (current4hRegime == MarketRegime.TRENDING_DOWN) {
+            // Preço espirrou até a banda superior (Overbought na tendência) e deixou Pin Bar
+            if (currentHigh > currentBbUpper && isBearishPinBar) {
+                // SL 0.5 do ATR acima do pavio
+                double stopLoss = currentHigh + (currentAtr * 0.5); 
+                double risk = stopLoss - cPrice;
+                if (risk <= 0) return TradeSignal.ignore();
 
-            if (risk > 0 && reward >= (risk * 1.0)) {
-                log.info("[{}] MEAN REVERSION SHORT! SL: {}, Target: {}", getName(), stopLoss, currentMiddle);
-                return TradeSignal.enter(TradeSide.SHORT, stopLoss, currentMiddle, 1.0, null, null); 
+                // Trailing stop infinito a favor da tendência
+                double takeProfit = 0.0001; 
+                double trailingMultiplier = (currentAtr * 2.0) / risk;
+
+                log.info("[{}] SHORT Trend Pullback! SL: {:.2f}, ATR: {:.2f}", getName(), stopLoss, currentAtr);
+                return TradeSignal.enter(TradeSide.SHORT, stopLoss, takeProfit, null, trailingMultiplier, null); 
             }
         }
 
