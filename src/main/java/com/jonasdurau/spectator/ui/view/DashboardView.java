@@ -3,6 +3,7 @@ package com.jonasdurau.spectator.ui.view;
 import com.jonasdurau.spectator.core.domain.Candle;
 import com.jonasdurau.spectator.core.domain.MarketRegime;
 import com.jonasdurau.spectator.core.repository.CandleRepository;
+import com.jonasdurau.spectator.core.service.StrategyEngineService;
 import com.jonasdurau.spectator.ui.broadcaster.MarketDataBroadcaster;
 import com.jonasdurau.spectator.ui.broadcaster.MarketTick;
 import com.jonasdurau.spectator.ui.components.TradingViewChart;
@@ -27,6 +28,7 @@ import org.springframework.beans.factory.annotation.Value;
 import java.text.NumberFormat;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.function.Consumer;
 
@@ -36,6 +38,7 @@ public class DashboardView extends VerticalLayout {
 
     private final MarketDataBroadcaster broadcaster;
     private final CandleRepository candleRepository;
+    private final Optional<StrategyEngineService> strategyEngineService;
     private Consumer<MarketTick> broadcasterListener;
     private MarketRegime currentRegime = null;
 
@@ -50,13 +53,16 @@ public class DashboardView extends VerticalLayout {
     private final Span positionBadge = new Span("NO ACTIVE TRADES");
     private final Span pnlLabel = new Span("$0.00");
     private final TradingViewChart chart = new TradingViewChart();
+    private final Button tradingToggle = new Button();
 
     private final NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.US);
 
     public DashboardView(MarketDataBroadcaster broadcaster, CandleRepository candleRepository,
+                         Optional<StrategyEngineService> strategyEngineService,
                          @Value("${spectator.symbols}") String symbolsConfig) {
         this.broadcaster = broadcaster;
         this.candleRepository = candleRepository;
+        this.strategyEngineService = strategyEngineService;
 
         // Parse configured symbols
         String[] symbols = symbolsConfig.split(",");
@@ -95,7 +101,13 @@ public class DashboardView extends VerticalLayout {
         backtestButton.addThemeVariants(ButtonVariant.LUMO_CONTRAST);
         backtestButton.addClickListener(e -> UI.getCurrent().navigate(BacktestView.class));
 
-        HorizontalLayout headerLayout = new HorizontalLayout(title, symbolSelector, backtestButton);
+        configureTradingToggle();
+
+        HorizontalLayout rightControls = new HorizontalLayout(tradingToggle, backtestButton);
+        rightControls.setSpacing(true);
+        rightControls.setAlignItems(Alignment.CENTER);
+
+        HorizontalLayout headerLayout = new HorizontalLayout(title, symbolSelector, rightControls);
         headerLayout.setWidthFull();
         headerLayout.setAlignItems(Alignment.CENTER);
         headerLayout.setJustifyContentMode(JustifyContentMode.BETWEEN);
@@ -229,6 +241,34 @@ public class DashboardView extends VerticalLayout {
 
             pnlLabel.setText("$0.00");
             pnlLabel.removeClassNames(LumoUtility.TextColor.SUCCESS, LumoUtility.TextColor.ERROR);
+        }
+    }
+
+    private void configureTradingToggle() {
+        if (strategyEngineService.isEmpty()) {
+            tradingToggle.setVisible(false);
+            return;
+        }
+
+        StrategyEngineService engine = strategyEngineService.get();
+        updateToggleStyle(engine.isAcceptingNewTrades());
+
+        tradingToggle.addClickListener(event -> {
+            boolean newState = !engine.isAcceptingNewTrades();
+            engine.setAcceptNewTrades(newState);
+            updateToggleStyle(newState);
+        });
+    }
+
+    private void updateToggleStyle(boolean isActive) {
+        tradingToggle.removeThemeVariants(ButtonVariant.LUMO_SUCCESS, ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_PRIMARY);
+
+        if (isActive) {
+            tradingToggle.setText("✅ Trading Active");
+            tradingToggle.addThemeVariants(ButtonVariant.LUMO_SUCCESS, ButtonVariant.LUMO_PRIMARY);
+        } else {
+            tradingToggle.setText("⛔ Trading Paused");
+            tradingToggle.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_PRIMARY);
         }
     }
 }
