@@ -1,6 +1,8 @@
 package com.jonasdurau.spectator.core.service;
 
+import com.jonasdurau.spectator.core.domain.Position;
 import com.jonasdurau.spectator.core.domain.TradeSide;
+import com.jonasdurau.spectator.core.repository.PositionRepository;
 import com.jonasdurau.spectator.integration.binance.BinanceOrderService;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceOrderResponse;
 import org.slf4j.Logger;
@@ -25,15 +27,21 @@ public class LiveTradingExecutionService implements OrderExecutionService {
     private final PositionManagerService positionManagerService;
     private final TradingMetricsService metricsService;
     private final NotificationService notificationService;
+    private final BinanceRiskSyncService binanceRiskSyncService;
+    private final PositionRepository positionRepository;
 
     public LiveTradingExecutionService(BinanceOrderService binanceOrderService,
                                         PositionManagerService positionManagerService,
                                         TradingMetricsService metricsService,
-                                        NotificationService notificationService) {
+                                        NotificationService notificationService,
+                                        BinanceRiskSyncService binanceRiskSyncService,
+                                        PositionRepository positionRepository) {
         this.binanceOrderService = binanceOrderService;
         this.positionManagerService = positionManagerService;
         this.metricsService = metricsService;
         this.notificationService = notificationService;
+        this.binanceRiskSyncService = binanceRiskSyncService;
+        this.positionRepository = positionRepository;
         log.warn("🔥🔥🔥 LIVE TRADING EXECUTION SERVICE ACTIVE! Real orders will be sent to Binance. 🔥🔥🔥");
     }
 
@@ -65,11 +73,18 @@ public class LiveTradingExecutionService implements OrderExecutionService {
             metricsService.recordLiveOrderSuccess();
 
             // 3. Registra a posição internamente para tracking de SL/TP/trailing
-            positionManagerService.openPosition(
+            Position position = positionManagerService.openPosition(
                     strategyName, symbol, side, executionPrice, executedQuantity,
                     stopLoss, takeProfit, breakevenMultiplier, trailingMultiplier);
 
-
+            // 4. Coloca ordens de risco (SL/TP) na Binance para blindagem server-side
+            if (stopLoss != null) {
+                binanceRiskSyncService.placeStopLoss(position, stopLoss);
+            }
+            if (takeProfit != null) {
+                binanceRiskSyncService.placeTakeProfit(position, takeProfit);
+            }
+            positionRepository.save(position);
         } catch (Exception e) {
             log.error("🚨 [LIVE TRADING] FAILED to execute {} {} order for {} (Qty: {}): {}",
                     strategyName, side, symbol, quantity, e.getMessage(), e);

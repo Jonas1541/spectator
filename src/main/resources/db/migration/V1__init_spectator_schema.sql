@@ -42,6 +42,8 @@ CREATE TABLE positions (
     initial_stop_loss DOUBLE PRECISION,
     trailing_multiplier DOUBLE PRECISION,
     breakeven_multiplier DOUBLE PRECISION,
+    binance_sl_order_id BIGINT,
+    binance_tp_order_id BIGINT,
     status VARCHAR(20) NOT NULL,
     realized_pnl DOUBLE PRECISION,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,

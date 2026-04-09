@@ -41,6 +41,12 @@ public class Position {
     private Double breakevenMultiplier;
     private Double trailingMultiplier;
 
+    @Column(name = "binance_sl_order_id")
+    private Long binanceSlOrderId;
+
+    @Column(name = "binance_tp_order_id")
+    private Long binanceTpOrderId;
+
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -199,6 +205,22 @@ public class Position {
         this.trailingMultiplier = trailingMultiplier;
     }
 
+
+    public Long getBinanceSlOrderId() {
+        return binanceSlOrderId;
+    }
+
+    public void setBinanceSlOrderId(Long binanceSlOrderId) {
+        this.binanceSlOrderId = binanceSlOrderId;
+    }
+
+    public Long getBinanceTpOrderId() {
+        return binanceTpOrderId;
+    }
+
+    public void setBinanceTpOrderId(Long binanceTpOrderId) {
+        this.binanceTpOrderId = binanceTpOrderId;
+    }
 
     public void setQuantity(double quantity) {
         this.quantity = quantity;

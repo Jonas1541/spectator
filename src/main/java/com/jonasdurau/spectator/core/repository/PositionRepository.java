@@ -12,6 +12,8 @@ import java.util.UUID;
 public interface PositionRepository extends JpaRepository<Position, UUID> {
     List<Position> findBySymbolAndStatus(String symbol, PositionStatus status);
 
+    List<Position> findByStatus(PositionStatus status);
+
     int countByStrategyNameAndStatus(String strategyName, PositionStatus status);
     
     int countByStrategyNameAndStatusAndRealizedPnlGreaterThan(String strategyName, PositionStatus status, Double pnl);

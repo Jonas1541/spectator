@@ -93,4 +93,127 @@ public class BinanceOrderService {
                 .retrieve()
                 .body(BinanceOrderResponse.class);
     }
+
+    /**
+     * Envia uma ordem STOP_MARKET com closePosition=true para a Binance Futures.
+     * O side é invertido: posição LONG → SELL, posição SHORT → BUY.
+     * @param symbol        Ex: "BTCUSDT"
+     * @param positionSide  O lado da posição aberta (LONG ou SHORT)
+     * @param stopPrice     Preço de ativação do stop
+     * @return Resposta da Binance com orderId
+     */
+    public BinanceOrderResponse placeStopMarketOrder(String symbol, TradeSide positionSide, double stopPrice) {
+        String binanceSide = positionSide == TradeSide.LONG ? "SELL" : "BUY";
+        long timestamp = Instant.now().toEpochMilli();
+        String queryString = "symbol=" + symbol
+                + "&side=" + binanceSide
+                + "&type=STOP_MARKET"
+                + "&closePosition=true"
+                + "&stopPrice=" + stopPrice
+                + "&timestamp=" + timestamp;
+        String signature = signer.sign(queryString);
+
+        Supplier<BinanceOrderResponse> orderCall = CircuitBreaker.decorateSupplier(
+                circuitBreaker,
+                RateLimiter.decorateSupplier(
+                        rateLimiter,
+                        () -> authenticatedApi.post()
+                                .uri(uriBuilder -> uriBuilder
+                                        .path("/fapi/v1/order")
+                                        .queryParam("symbol", symbol)
+                                        .queryParam("side", binanceSide)
+                                        .queryParam("type", "STOP_MARKET")
+                                        .queryParam("closePosition", "true")
+                                        .queryParam("stopPrice", stopPrice)
+                                        .queryParam("timestamp", timestamp)
+                                        .queryParam("signature", signature)
+                                        .build())
+                                .retrieve()
+                                .body(BinanceOrderResponse.class)
+                )
+        );
+
+        BinanceOrderResponse response = orderCall.get();
+        log.info("🛡️ [STOP_MARKET] {} {} @ stopPrice={} | orderId={} | status={}",
+                binanceSide, symbol, stopPrice, response.orderId(), response.status());
+        return response;
+    }
+
+    /**
+     * Envia uma ordem TAKE_PROFIT_MARKET com closePosition=true para a Binance Futures.
+     * O side é invertido: posição LONG → SELL, posição SHORT → BUY.
+     * @param symbol        Ex: "BTCUSDT"
+     * @param positionSide  O lado da posição aberta (LONG ou SHORT)
+     * @param tpPrice       Preço de ativação do take profit
+     * @return Resposta da Binance com orderId
+     */
+    public BinanceOrderResponse placeTakeProfitMarketOrder(String symbol, TradeSide positionSide, double tpPrice) {
+        String binanceSide = positionSide == TradeSide.LONG ? "SELL" : "BUY";
+        long timestamp = Instant.now().toEpochMilli();
+        String queryString = "symbol=" + symbol
+                + "&side=" + binanceSide
+                + "&type=TAKE_PROFIT_MARKET"
+                + "&closePosition=true"
+                + "&stopPrice=" + tpPrice
+                + "&timestamp=" + timestamp;
+        String signature = signer.sign(queryString);
+
+        Supplier<BinanceOrderResponse> orderCall = CircuitBreaker.decorateSupplier(
+                circuitBreaker,
+                RateLimiter.decorateSupplier(
+                        rateLimiter,
+                        () -> authenticatedApi.post()
+                                .uri(uriBuilder -> uriBuilder
+                                        .path("/fapi/v1/order")
+                                        .queryParam("symbol", symbol)
+                                        .queryParam("side", binanceSide)
+                                        .queryParam("type", "TAKE_PROFIT_MARKET")
+                                        .queryParam("closePosition", "true")
+                                        .queryParam("stopPrice", tpPrice)
+                                        .queryParam("timestamp", timestamp)
+                                        .queryParam("signature", signature)
+                                        .build())
+                                .retrieve()
+                                .body(BinanceOrderResponse.class)
+                )
+        );
+
+        BinanceOrderResponse response = orderCall.get();
+        log.info("🎯 [TAKE_PROFIT_MARKET] {} {} @ tpPrice={} | orderId={} | status={}",
+                binanceSide, symbol, tpPrice, response.orderId(), response.status());
+        return response;
+    }
+
+    /**
+     * Cancela uma ordem existente na Binance Futures via DELETE /fapi/v1/order.
+     * @param symbol  Ex: "BTCUSDT"
+     * @param orderId ID da ordem retornado pela Binance
+     */
+    public void cancelOrder(String symbol, Long orderId) {
+        long timestamp = Instant.now().toEpochMilli();
+        String queryString = "symbol=" + symbol
+                + "&orderId=" + orderId
+                + "&timestamp=" + timestamp;
+        String signature = signer.sign(queryString);
+
+        Runnable cancelCall = CircuitBreaker.decorateRunnable(
+                circuitBreaker,
+                RateLimiter.decorateRunnable(
+                        rateLimiter,
+                        () -> authenticatedApi.delete()
+                                .uri(uriBuilder -> uriBuilder
+                                        .path("/fapi/v1/order")
+                                        .queryParam("symbol", symbol)
+                                        .queryParam("orderId", orderId)
+                                        .queryParam("timestamp", timestamp)
+                                        .queryParam("signature", signature)
+                                        .build())
+                                .retrieve()
+                                .toBodilessEntity()
+                )
+        );
+
+        cancelCall.run();
+        log.info("❌ [CANCEL ORDER] symbol={} | orderId={}", symbol, orderId);
+    }
 }

@@ -24,15 +24,18 @@ public class PositionManagerService {
     private final TradeRepository tradeRepository;
     private final TradingMetricsService metricsService;
     private final NotificationService notificationService;
+    private final BinanceRiskSyncService binanceRiskSyncService;
 
     public PositionManagerService(PositionRepository positionRepository,
                                    TradeRepository tradeRepository,
                                    TradingMetricsService metricsService,
-                                   NotificationService notificationService) {
+                                   NotificationService notificationService,
+                                   BinanceRiskSyncService binanceRiskSyncService) {
         this.positionRepository = positionRepository;
         this.tradeRepository = tradeRepository;
         this.metricsService = metricsService;
         this.notificationService = notificationService;
+        this.binanceRiskSyncService = binanceRiskSyncService;
     }
 
     @Transactional
@@ -76,6 +79,10 @@ public class PositionManagerService {
                 Instant.now());
 
         position.addTrade(trade);
+
+        // Cancela ordens residuais SL/TP na exchange antes de fechar localmente
+        binanceRiskSyncService.cancelAllOrders(position);
+
         position.closePosition(closingPrice);
 
         positionRepository.save(position);
@@ -163,6 +170,9 @@ public class PositionManagerService {
             }
             
             if (stopMoved) {
+                // Cancel & Replace: cancela SL antigo e coloca novo na exchange
+                binanceRiskSyncService.cancelStopLoss(position);
+                binanceRiskSyncService.placeStopLoss(position, currentStop);
                 positionRepository.save(position);
             }
 
