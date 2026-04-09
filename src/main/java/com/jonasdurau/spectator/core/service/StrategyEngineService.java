@@ -21,6 +21,8 @@ public class StrategyEngineService {
 
     private static final Logger log = LoggerFactory.getLogger(StrategyEngineService.class);
 
+    private volatile boolean acceptNewTrades = true;
+
     private final OrderExecutionService orderExecutionService;
     private final PositionRepository positionRepository;
     private final RiskManagerService riskManagerService;
@@ -42,6 +44,15 @@ public class StrategyEngineService {
         this.strategies = strategies;
     }
 
+    public void setAcceptNewTrades(boolean acceptNewTrades) {
+        this.acceptNewTrades = acceptNewTrades;
+        log.info("⚙️ Graceful Shutdown flag updated: acceptNewTrades={}", acceptNewTrades);
+    }
+
+    public boolean isAcceptingNewTrades() {
+        return acceptNewTrades;
+    }
+
     public void processTick(String symbol, double currentPrice, MarketRegime regime, List<Candle> recent1hCandles) {
         List<Position> openPositions = positionRepository.findBySymbolAndStatus(symbol, PositionStatus.OPEN);
 
@@ -56,6 +67,11 @@ public class StrategyEngineService {
             TradeSignal signal = strategy.evaluate(recent1hCandles, regime, currentPrice, orderFlowContext);
             
             if (signal.fire()) {
+                // Barreira de Graceful Shutdown: impede novas entradas sem afetar o gerenciamento de posições abertas
+                if (!acceptNewTrades) {
+                    log.warn("🛑 Signal from [{}] ignored — Graceful Shutdown active. No new trades will be opened.", strategy.getName());
+                    return;
+                }
                 // --- DYNAMIC WIN RATE ENGINE ---
                 int totalClosed = positionRepository.countByStrategyNameAndStatus(strategy.getName(), PositionStatus.CLOSED);
                 double dynamicWinProb;

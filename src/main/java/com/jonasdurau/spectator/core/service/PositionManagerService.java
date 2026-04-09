@@ -59,16 +59,8 @@ public class PositionManagerService {
     }
 
     /**
-     * Fecha uma posição sem especificar motivo (retrocompatibilidade).
-     */
-    @Transactional
-    public void closePosition(Position position, double closingPrice) {
-        closePosition(position, closingPrice, "MANUAL");
-    }
-
-    /**
      * Fecha uma posição com motivo de saída explícito para métricas e notificações.
-     * @param exitReason Ex: "STOP_LOSS", "TAKE_PROFIT", "PANIC_CLOSE"
+     * @param exitReason Ex: "STOP_LOSS", "TAKE_PROFIT"
      */
     @Transactional
     public void closePosition(Position position, double closingPrice, String exitReason) {
@@ -96,7 +88,6 @@ public class PositionManagerService {
         switch (exitReason) {
             case "STOP_LOSS" -> metricsService.recordStopLossHit();
             case "TAKE_PROFIT" -> metricsService.recordTakeProfitHit();
-            case "PANIC_CLOSE" -> metricsService.recordPanicClose();
         }
 
         // Notificações
@@ -174,24 +165,6 @@ public class PositionManagerService {
                 binanceRiskSyncService.cancelStopLoss(position);
                 binanceRiskSyncService.placeStopLoss(position, currentStop);
                 positionRepository.save(position);
-            }
-
-
-            // --- PANIC CLOSE (HMM Regime Shift) ---
-            if (position.getStrategyName() != null && position.getStrategyName().toLowerCase().contains("pullback")) {
-                boolean panicClose = false;
-                if (position.getSide() == TradeSide.LONG && currentRegime != MarketRegime.TRENDING_UP) {
-                    panicClose = true;
-                } else if (position.getSide() == TradeSide.SHORT && currentRegime != MarketRegime.TRENDING_DOWN) {
-                    panicClose = true;
-                }
-                
-                if (panicClose) {
-                    log.warn("🚨 PANIC CLOSE! Regime shifted to {} while holding {} {}. Closing at {}.", 
-                             currentRegime, position.getSide(), position.getSymbol(), currentPrice);
-                    closePosition(position, currentPrice, "PANIC_CLOSE");
-                    continue;
-                }
             }
 
             // Checking Stop Loss

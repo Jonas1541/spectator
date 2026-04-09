@@ -26,7 +26,6 @@ public class TradingMetricsService {
     private final Counter positionsClosed;
     private final Counter stopLossHits;
     private final Counter takeProfitHits;
-    private final Counter panicCloses;
 
     private final Counter liveOrdersSuccess;
     private final Counter liveOrdersFailed;
@@ -48,10 +47,6 @@ public class TradingMetricsService {
 
         this.takeProfitHits = Counter.builder("spectator.positions.tp_hit")
                 .description("Total de take profits disparados")
-                .register(registry);
-
-        this.panicCloses = Counter.builder("spectator.positions.panic_close")
-                .description("Total de fechamentos por mudança de regime (panic close)")
                 .register(registry);
 
 
@@ -87,11 +82,6 @@ public class TradingMetricsService {
     public void recordTakeProfitHit() {
         takeProfitHits.increment();
     }
-
-    public void recordPanicClose() {
-        panicCloses.increment();
-    }
-
 
 
     public void recordLiveOrderSuccess() {

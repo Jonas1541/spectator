@@ -13,8 +13,8 @@ public interface NotificationService {
     void notifyTradeEntry(String symbol, String strategy, String side, double price, double quantity);
 
     /**
-     * Notifica sobre uma saída de posição (SL, TP, Panic Close, etc.).
-     * @param exitReason Ex: "STOP_LOSS", "TAKE_PROFIT", "PANIC_CLOSE", "MANUAL"
+     * Notifica sobre uma saída de posição (SL ou TP executado pela exchange).
+     * @param exitReason Ex: "STOP_LOSS", "TAKE_PROFIT"
      */
     void notifyTradeExit(String symbol, String exitReason, String side, double price, double pnl);
 
