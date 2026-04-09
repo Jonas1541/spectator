@@ -6,6 +6,7 @@ package com.jonasdurau.spectator.core.service;
  * Apenas cálculos leves (aritmética sobre lista de trades), sem Monte Carlo.
  */
 public record LiveSymbolMetrics(
+        int activeTrades,
         int totalTrades,
         int wins,
         int losses,
@@ -16,6 +17,6 @@ public record LiveSymbolMetrics(
         double sharpeRatio
 ) {
     public static LiveSymbolMetrics empty() {
-        return new LiveSymbolMetrics(0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        return new LiveSymbolMetrics(0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0);
     }
 }

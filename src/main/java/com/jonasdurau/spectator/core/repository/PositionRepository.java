@@ -18,6 +18,10 @@ public interface PositionRepository extends JpaRepository<Position, UUID> {
 
     List<Position> findByStatusOrderByClosedAtAsc(PositionStatus status);
 
+    int countBySymbolAndStatus(String symbol, PositionStatus status);
+
+    int countByStatus(PositionStatus status);
+
     int countByStrategyNameAndStatus(String strategyName, PositionStatus status);
     
     int countByStrategyNameAndStatusAndRealizedPnlGreaterThan(String strategyName, PositionStatus status, Double pnl);

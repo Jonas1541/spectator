@@ -58,6 +58,7 @@ public class DashboardView extends VerticalLayout {
     private final NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.US);
 
     // Global metrics board labels
+    private final Span globalActiveTradesLabel = new Span("-");
     private final Span globalWinRateLabel = new Span("-");
     private final Span globalNetProfitLabel = new Span("-");
     private final Span globalTradesLabel = new Span("-");
@@ -123,7 +124,8 @@ public class DashboardView extends VerticalLayout {
 
         board.add(createMetricCell("Win Rate", globalWinRateLabel));
         board.add(createMetricCell("Net Profit", globalNetProfitLabel));
-        board.add(createMetricCell("Total Trades", globalTradesLabel));
+        board.add(createMetricCell("Active Trades", globalActiveTradesLabel));
+        board.add(createMetricCell("Total Closed", globalTradesLabel));
         board.add(createMetricCell("Max Drawdown", globalDrawdownLabel));
         board.add(createMetricCell("Expectancy", globalExpectancyLabel));
         board.add(createMetricCell("Sharpe Ratio", globalSharpeLabel));
@@ -133,7 +135,7 @@ public class DashboardView extends VerticalLayout {
 
     private void populateGlobalMetrics() {
         LiveSymbolMetrics global = liveMetricsService.computeGlobalMetrics();
-        applyMetricsToLabels(global, globalWinRateLabel, globalNetProfitLabel,
+        applyMetricsToLabels(global, globalActiveTradesLabel, globalWinRateLabel, globalNetProfitLabel,
                 globalTradesLabel, globalDrawdownLabel, globalExpectancyLabel, globalSharpeLabel);
     }
 
@@ -165,7 +167,7 @@ public class DashboardView extends VerticalLayout {
 
             // Métricas do símbolo
             LiveSymbolMetrics metrics = liveMetricsService.computeMetrics(symbol);
-            applyMetricsToLabels(metrics, panel.winRateLabel, panel.netProfitLabel,
+            applyMetricsToLabels(metrics, panel.activeTradesLabel, panel.winRateLabel, panel.netProfitLabel,
                     panel.tradesLabel, panel.drawdownLabel, panel.expectancyLabel, panel.sharpeLabel);
         }
     }
@@ -261,8 +263,15 @@ public class DashboardView extends VerticalLayout {
     // ──────────────────── METRICS FORMATTING ────────────────────
 
     private void applyMetricsToLabels(LiveSymbolMetrics metrics,
-                                       Span winRate, Span netProfit, Span trades,
+                                       Span activeTrades, Span winRate, Span netProfit, Span trades,
                                        Span drawdown, Span expectancy, Span sharpe) {
+        activeTrades.setText(String.valueOf(metrics.activeTrades()));
+        if (metrics.activeTrades() > 0) {
+            activeTrades.getStyle().set("color", COLOR_YELLOW);
+        } else {
+            activeTrades.getStyle().remove("color");
+        }
+
         if (metrics.totalTrades() == 0) {
             winRate.setText("-");
             netProfit.setText("-");
@@ -361,6 +370,7 @@ public class DashboardView extends VerticalLayout {
         final Span pnlLabel;
 
         // Métricas de performance
+        final Span activeTradesLabel = new Span("-");
         final Span winRateLabel = new Span("-");
         final Span netProfitLabel = new Span("-");
         final Span tradesLabel = new Span("-");
@@ -409,9 +419,10 @@ public class DashboardView extends VerticalLayout {
                     createDivider(), 
                     
                     // Bloco 2: Métricas de performance
+                    createCell("Active Trades", activeTradesLabel),
                     createCell("Win Rate", winRateLabel),
                     createCell("Net Profit", netProfitLabel),
-                    createCell("Total Trades", tradesLabel),
+                    createCell("Total Closed", tradesLabel),
                     createCell("Max DD", drawdownLabel),
                     createCell("Expectancy", expectancyLabel),
                     createCell("Sharpe", sharpeLabel)

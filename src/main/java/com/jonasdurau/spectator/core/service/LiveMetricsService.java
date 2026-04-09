@@ -26,23 +26,25 @@ public class LiveMetricsService {
      * Calcula métricas para um símbolo específico.
      */
     public LiveSymbolMetrics computeMetrics(String symbol) {
+        int activeTrades = positionRepository.countBySymbolAndStatus(symbol, PositionStatus.OPEN);
         List<Position> closedPositions = positionRepository
                 .findBySymbolAndStatusOrderByClosedAtAsc(symbol, PositionStatus.CLOSED);
-        return buildMetrics(closedPositions);
+        return buildMetrics(activeTrades, closedPositions);
     }
 
     /**
      * Calcula métricas globais (todos os símbolos agregados).
      */
     public LiveSymbolMetrics computeGlobalMetrics() {
+        int activeTrades = positionRepository.countByStatus(PositionStatus.OPEN);
         List<Position> closedPositions = positionRepository
                 .findByStatusOrderByClosedAtAsc(PositionStatus.CLOSED);
-        return buildMetrics(closedPositions);
+        return buildMetrics(activeTrades, closedPositions);
     }
 
-    private LiveSymbolMetrics buildMetrics(List<Position> closedPositions) {
+    private LiveSymbolMetrics buildMetrics(int activeTrades, List<Position> closedPositions) {
         if (closedPositions.isEmpty()) {
-            return LiveSymbolMetrics.empty();
+            return new LiveSymbolMetrics(activeTrades, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0);
         }
 
         int totalTrades = closedPositions.size();
@@ -96,7 +98,7 @@ public class LiveMetricsService {
         // Sharpe Ratio = mean(returns) / stddev(returns) × √252
         double sharpeRatio = computeSharpeRatio(returns);
 
-        return new LiveSymbolMetrics(totalTrades, wins, losses, winRate, totalProfit,
+        return new LiveSymbolMetrics(activeTrades, totalTrades, wins, losses, winRate, totalProfit,
                 maxDrawdown, expectancy, sharpeRatio);
     }
 
