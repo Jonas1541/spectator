@@ -27,7 +27,7 @@ jobs:
             git pull origin main
             
             # Rebuilda a imagem do Spring Boot e reinicia o container em background
-            docker compose up --build -d
+            docker compose --profile prod up --build -d
             
             # Limpa imagens antigas do Docker para não lotar o disco da VPS com o tempo
             docker image prune -f
