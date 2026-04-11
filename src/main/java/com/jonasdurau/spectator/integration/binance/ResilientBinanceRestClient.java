@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,7 +29,7 @@ public class ResilientBinanceRestClient extends BinanceRestClient {
     private final CircuitBreaker circuitBreaker;
     private final RateLimiter rateLimiter;
 
-    public ResilientBinanceRestClient(RestClient restClient, CircuitBreaker circuitBreaker, RateLimiter rateLimiter) {
+    public ResilientBinanceRestClient(@Qualifier("binanceApi") RestClient restClient, CircuitBreaker circuitBreaker, RateLimiter rateLimiter) {
         super(restClient);
         this.circuitBreaker = circuitBreaker;
         this.rateLimiter = rateLimiter;
