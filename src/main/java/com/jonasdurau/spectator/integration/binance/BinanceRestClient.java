@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,7 +18,7 @@ public class BinanceRestClient {
     private static final Logger log = LoggerFactory.getLogger(BinanceRestClient.class);
     private final RestClient restClient;
 
-    public BinanceRestClient(RestClient restClient) {
+    public BinanceRestClient(@Qualifier("binanceApi") RestClient restClient) {
         this.restClient = restClient;
     }
 
