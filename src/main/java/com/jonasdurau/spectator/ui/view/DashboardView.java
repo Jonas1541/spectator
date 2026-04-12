@@ -228,6 +228,16 @@ public class DashboardView extends VerticalLayout {
         // Position & Floating PnL
         if (positions != null && !positions.isEmpty()) {
             Position active = positions.get(0);
+            
+            if (panel.activePosition == null || !panel.activePosition.getId().equals(active.getId())) {
+                String text = active.getSide() == TradeSide.LONG ? "Buy" : "Sell";
+                String color = active.getSide() == TradeSide.LONG ? "#26a69a" : "#ef5350";
+                String shape = active.getSide() == TradeSide.LONG ? "arrowUp" : "arrowDown";
+                String positionLabel = active.getSide() == TradeSide.LONG ? "belowBar" : "aboveBar";
+                panel.chart.addLiveMarker(candle.getTime(), text, color, positionLabel, shape);
+            }
+            panel.activePosition = active;
+            
             panel.positionBadge.setText(active.getSide() + " x" + active.getQuantity());
 
             panel.positionBadge.removeClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS,
@@ -250,6 +260,18 @@ public class DashboardView extends VerticalLayout {
                 panel.pnlLabel.addClassName(LumoUtility.TextColor.ERROR);
             }
         } else {
+            if (panel.activePosition != null) {
+                Position closedPos = panel.activePosition;
+                double pnl = closedPos.calculateFloatingPnl(candle.getClose());
+                String pnlText = String.format(java.util.Locale.US, "%.2f", pnl);
+                String text = (pnl >= 0 ? "TP (+" + pnlText + ")" : "SL (" + pnlText + ")");
+                String color = pnl >= 0 ? "#f5cb5c" : "#787878";
+                String shape = closedPos.getSide() == TradeSide.LONG ? "arrowDown" : "arrowUp";
+                String positionLabel = closedPos.getSide() == TradeSide.LONG ? "aboveBar" : "belowBar";
+                panel.chart.addLiveMarker(candle.getTime(), text, color, positionLabel, shape);
+                panel.activePosition = null;
+            }
+
             panel.positionBadge.setText("FLAT");
             panel.positionBadge.removeClassNames(LumoUtility.Background.SUCCESS_10, LumoUtility.TextColor.SUCCESS,
                     LumoUtility.Background.ERROR_10, LumoUtility.TextColor.ERROR);
@@ -379,6 +401,7 @@ public class DashboardView extends VerticalLayout {
         final Span sharpeLabel = new Span("-");
 
         MarketRegime currentRegime = null;
+        Position activePosition = null;
 
         SymbolPanel(String symbol) {
             container = new VerticalLayout();
