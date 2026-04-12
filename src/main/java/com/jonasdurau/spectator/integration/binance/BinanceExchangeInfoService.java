@@ -1,6 +1,5 @@
 package com.jonasdurau.spectator.integration.binance;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -31,23 +31,20 @@ public class BinanceExchangeInfoService {
     public void init() {
         log.info("Buscando exchange info da Binance para carregar regras de precisão...");
         try {
-            JsonNode response = restClient.get()
+            BinanceExchangeInfoResponse response = restClient.get()
                     .uri("https://fapi.binance.com/fapi/v1/exchangeInfo")
                     .retrieve()
-                    .body(JsonNode.class);
+                    .body(BinanceExchangeInfoResponse.class);
 
-            if (response != null && response.has("symbols")) {
-                JsonNode symbols = response.get("symbols");
-                for (JsonNode symbolNode : symbols) {
-                    if (symbolNode.has("symbol") && symbolNode.has("quantityPrecision")) {
-                        String symbol = symbolNode.get("symbol").asText();
-                        int quantityPrecision = symbolNode.get("quantityPrecision").asInt();
-                        symbolPrecisions.put(symbol, quantityPrecision);
+            if (response != null && response.symbols() != null) {
+                for (BinanceSymbolInfo symbolInfo : response.symbols()) {
+                    if (symbolInfo.symbol() != null) {
+                        symbolPrecisions.put(symbolInfo.symbol(), symbolInfo.quantityPrecision());
                     }
                 }
                 log.info("Regras de precisão carregadas para {} símbolos.", symbolPrecisions.size());
             } else {
-                log.warn("O campo 'symbols' não foi encontrado na resposta do exchangeInfo da Binance.");
+                log.warn("O campo 'symbols' não foi encontrado ou está vazio na resposta do exchangeInfo da Binance.");
             }
         } catch (Exception e) {
             log.error("Falha ao buscar exchange info da Binance: {}", e.getMessage(), e);
@@ -65,3 +62,6 @@ public class BinanceExchangeInfoService {
         return symbolPrecisions.getOrDefault(symbol, 0);
     }
 }
+
+record BinanceExchangeInfoResponse(List<BinanceSymbolInfo> symbols) {}
+record BinanceSymbolInfo(String symbol, int quantityPrecision) {}
