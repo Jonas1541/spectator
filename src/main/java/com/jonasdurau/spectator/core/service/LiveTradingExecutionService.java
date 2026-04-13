@@ -72,15 +72,22 @@ public class LiveTradingExecutionService implements OrderExecutionService {
             // 1. Envia a ordem real para a Binance
             BinanceOrderResponse response = binanceOrderService.placeMarketOrder(symbol, side, roundedQuantity);
 
-            // 2. Usa o preço médio de execução real retornado pela Binance
+            // 2. Usa o preço médio de execução real, se a Binance retornar um valor válido > 0
             double executionPrice = currentPrice;
-            if (response.avgPrice() != null && !response.avgPrice().isEmpty() && !"0".equals(response.avgPrice())) {
-                executionPrice = Double.parseDouble(response.avgPrice());
+            if (response.avgPrice() != null && !response.avgPrice().isEmpty()) {
+                double parsedAvgPrice = Double.parseDouble(response.avgPrice());
+                if (parsedAvgPrice > 0) {
+                    executionPrice = parsedAvgPrice;
+                }
             }
 
-            double executedQuantity = quantity;
+            // 3. Usa a quantidade executada da Binance, fazendo fallback para a arredondada
+            double executedQuantity = roundedQuantity;
             if (response.executedQty() != null && !response.executedQty().isEmpty()) {
-                executedQuantity = Double.parseDouble(response.executedQty());
+                double parsedQty = Double.parseDouble(response.executedQty());
+                if (parsedQty > 0) {
+                    executedQuantity = parsedQty;
+                }
             }
 
             log.info("[LIVE TRADING] ✅ Order FILLED! orderId={}, avg price={}, executed qty={}, status={}",
