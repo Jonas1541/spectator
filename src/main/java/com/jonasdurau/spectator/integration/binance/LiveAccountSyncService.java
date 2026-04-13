@@ -8,7 +8,7 @@ import com.jonasdurau.spectator.core.repository.PositionRepository;
 import com.jonasdurau.spectator.core.repository.TradeRepository;
 import com.jonasdurau.spectator.core.service.BinanceRiskSyncService;
 import com.jonasdurau.spectator.core.service.NotificationService;
-import com.jonasdurau.spectator.integration.binance.dto.BinanceOpenOrderResponse;
+import com.jonasdurau.spectator.integration.binance.dto.BinanceOpenAlgoOrderResponse;
 import com.jonasdurau.spectator.integration.binance.dto.BinancePositionRiskResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -150,13 +150,13 @@ public class LiveAccountSyncService {
             }
         }
 
-        // Busca ordens abertas na Binance para este símbolo
-        Set<Long> activeOrderIds = fetchOpenOrderIds(symbol);
+        // Busca algo orders abertas na Binance para este símbolo
+        Set<Long> activeAlgoIds = fetchOpenAlgoOrderIds(symbol);
 
         boolean slMissing = position.getBinanceSlOrderId() != null
-                && !activeOrderIds.contains(position.getBinanceSlOrderId());
+                && !activeAlgoIds.contains(position.getBinanceSlOrderId());
         boolean tpMissing = position.getBinanceTpOrderId() != null
-                && !activeOrderIds.contains(position.getBinanceTpOrderId());
+                && !activeAlgoIds.contains(position.getBinanceTpOrderId());
 
         if (slMissing && tpMissing) {
             // Ambas as ordens sumiram — posição provavelmente foi fechada pela Binance
@@ -296,27 +296,27 @@ public class LiveAccountSyncService {
                 .collect(Collectors.toList());
     }
 
-    private Set<Long> fetchOpenOrderIds(String symbol) {
+    private Set<Long> fetchOpenAlgoOrderIds(String symbol) {
         long timestamp = Instant.now().toEpochMilli();
-        String queryString = "symbol=" + symbol + "&timestamp=" + timestamp;
+        String queryString = "timestamp=" + timestamp;
         String signature = signer.sign(queryString);
 
-        List<BinanceOpenOrderResponse> openOrders = authenticatedApi.get()
+        List<BinanceOpenAlgoOrderResponse> openAlgoOrders = authenticatedApi.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/fapi/v1/openOrders")
-                        .queryParam("symbol", symbol)
+                        .path("/fapi/v1/openAlgoOrders")
                         .queryParam("timestamp", timestamp)
                         .queryParam("signature", signature)
                         .build())
                 .retrieve()
                 .body(new ParameterizedTypeReference<>() {});
 
-        if (openOrders == null) {
+        if (openAlgoOrders == null) {
             return Set.of();
         }
 
-        return openOrders.stream()
-                .map(BinanceOpenOrderResponse::orderId)
+        return openAlgoOrders.stream()
+                .filter(o -> symbol.equals(o.symbol()))
+                .map(BinanceOpenAlgoOrderResponse::algoId)
                 .collect(Collectors.toSet());
     }
 }

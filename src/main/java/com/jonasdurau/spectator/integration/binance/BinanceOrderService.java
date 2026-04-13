@@ -1,6 +1,7 @@
 package com.jonasdurau.spectator.integration.binance;
 
 import com.jonasdurau.spectator.core.domain.TradeSide;
+import com.jonasdurau.spectator.integration.binance.dto.BinanceAlgoOrderResponse;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceOrderResponse;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.RateLimiter;
@@ -16,7 +17,8 @@ import java.util.function.Supplier;
 
 /**
  * Serviço responsável por enviar ordens para a Binance Futures.
- * Envia ordens do tipo MARKET via POST /fapi/v1/order.
+ * Ordens MARKET via POST /fapi/v1/order.
+ * Ordens condicionais (STOP_MARKET, TAKE_PROFIT_MARKET) via POST /fapi/v1/algoOrder (Algo Order API).
  * Protegido por Circuit Breaker e Rate Limiter.
  * Ativado apenas quando live trading está habilitado.
  */
@@ -95,97 +97,134 @@ public class BinanceOrderService {
     }
 
     /**
-     * Envia uma ordem STOP_MARKET com closePosition=true para a Binance Futures.
+     * Envia uma ordem STOP_MARKET via Algo Order API com closePosition=true.
      * O side é invertido: posição LONG → SELL, posição SHORT → BUY.
+     * Desde Dez/2025, ordens condicionais devem usar POST /fapi/v1/algoOrder.
      * @param symbol        Ex: "BTCUSDT"
      * @param positionSide  O lado da posição aberta (LONG ou SHORT)
-     * @param stopPrice     Preço de ativação do stop
-     * @return Resposta da Binance com orderId
+     * @param triggerPrice  Preço de ativação do stop
+     * @return Resposta da Binance com algoId
      */
-    public BinanceOrderResponse placeStopMarketOrder(String symbol, TradeSide positionSide, double stopPrice) {
+    public BinanceAlgoOrderResponse placeAlgoStopMarketOrder(String symbol, TradeSide positionSide, double triggerPrice) {
         String binanceSide = positionSide == TradeSide.LONG ? "SELL" : "BUY";
         long timestamp = Instant.now().toEpochMilli();
         String queryString = "symbol=" + symbol
                 + "&side=" + binanceSide
+                + "&algoType=CONDITIONAL"
                 + "&type=STOP_MARKET"
                 + "&closePosition=true"
-                + "&stopPrice=" + stopPrice
+                + "&triggerPrice=" + triggerPrice
                 + "&timestamp=" + timestamp;
         String signature = signer.sign(queryString);
 
-        Supplier<BinanceOrderResponse> orderCall = CircuitBreaker.decorateSupplier(
+        Supplier<BinanceAlgoOrderResponse> orderCall = CircuitBreaker.decorateSupplier(
                 circuitBreaker,
                 RateLimiter.decorateSupplier(
                         rateLimiter,
                         () -> authenticatedApi.post()
                                 .uri(uriBuilder -> uriBuilder
-                                        .path("/fapi/v1/order")
+                                        .path("/fapi/v1/algoOrder")
                                         .queryParam("symbol", symbol)
                                         .queryParam("side", binanceSide)
+                                        .queryParam("algoType", "CONDITIONAL")
                                         .queryParam("type", "STOP_MARKET")
                                         .queryParam("closePosition", "true")
-                                        .queryParam("stopPrice", stopPrice)
+                                        .queryParam("triggerPrice", triggerPrice)
                                         .queryParam("timestamp", timestamp)
                                         .queryParam("signature", signature)
                                         .build())
                                 .retrieve()
-                                .body(BinanceOrderResponse.class)
+                                .body(BinanceAlgoOrderResponse.class)
                 )
         );
 
-        BinanceOrderResponse response = orderCall.get();
-        log.info("🛡️ [STOP_MARKET] {} {} @ stopPrice={} | orderId={} | status={}",
-                binanceSide, symbol, stopPrice, response.orderId(), response.status());
+        BinanceAlgoOrderResponse response = orderCall.get();
+        log.info("🛡️ [ALGO STOP_MARKET] {} {} @ triggerPrice={} | algoId={} | status={}",
+                binanceSide, symbol, triggerPrice, response.algoId(), response.algoStatus());
         return response;
     }
 
     /**
-     * Envia uma ordem TAKE_PROFIT_MARKET com closePosition=true para a Binance Futures.
+     * Envia uma ordem TAKE_PROFIT_MARKET via Algo Order API com closePosition=true.
      * O side é invertido: posição LONG → SELL, posição SHORT → BUY.
+     * Desde Dez/2025, ordens condicionais devem usar POST /fapi/v1/algoOrder.
      * @param symbol        Ex: "BTCUSDT"
      * @param positionSide  O lado da posição aberta (LONG ou SHORT)
-     * @param tpPrice       Preço de ativação do take profit
-     * @return Resposta da Binance com orderId
+     * @param triggerPrice  Preço de ativação do take profit
+     * @return Resposta da Binance com algoId
      */
-    public BinanceOrderResponse placeTakeProfitMarketOrder(String symbol, TradeSide positionSide, double tpPrice) {
+    public BinanceAlgoOrderResponse placeAlgoTakeProfitMarketOrder(String symbol, TradeSide positionSide, double triggerPrice) {
         String binanceSide = positionSide == TradeSide.LONG ? "SELL" : "BUY";
         long timestamp = Instant.now().toEpochMilli();
         String queryString = "symbol=" + symbol
                 + "&side=" + binanceSide
+                + "&algoType=CONDITIONAL"
                 + "&type=TAKE_PROFIT_MARKET"
                 + "&closePosition=true"
-                + "&stopPrice=" + tpPrice
+                + "&triggerPrice=" + triggerPrice
                 + "&timestamp=" + timestamp;
         String signature = signer.sign(queryString);
 
-        Supplier<BinanceOrderResponse> orderCall = CircuitBreaker.decorateSupplier(
+        Supplier<BinanceAlgoOrderResponse> orderCall = CircuitBreaker.decorateSupplier(
                 circuitBreaker,
                 RateLimiter.decorateSupplier(
                         rateLimiter,
                         () -> authenticatedApi.post()
                                 .uri(uriBuilder -> uriBuilder
-                                        .path("/fapi/v1/order")
+                                        .path("/fapi/v1/algoOrder")
                                         .queryParam("symbol", symbol)
                                         .queryParam("side", binanceSide)
+                                        .queryParam("algoType", "CONDITIONAL")
                                         .queryParam("type", "TAKE_PROFIT_MARKET")
                                         .queryParam("closePosition", "true")
-                                        .queryParam("stopPrice", tpPrice)
+                                        .queryParam("triggerPrice", triggerPrice)
                                         .queryParam("timestamp", timestamp)
                                         .queryParam("signature", signature)
                                         .build())
                                 .retrieve()
-                                .body(BinanceOrderResponse.class)
+                                .body(BinanceAlgoOrderResponse.class)
                 )
         );
 
-        BinanceOrderResponse response = orderCall.get();
-        log.info("🎯 [TAKE_PROFIT_MARKET] {} {} @ tpPrice={} | orderId={} | status={}",
-                binanceSide, symbol, tpPrice, response.orderId(), response.status());
+        BinanceAlgoOrderResponse response = orderCall.get();
+        log.info("🎯 [ALGO TAKE_PROFIT_MARKET] {} {} @ triggerPrice={} | algoId={} | status={}",
+                binanceSide, symbol, triggerPrice, response.algoId(), response.algoStatus());
         return response;
     }
 
     /**
-     * Cancela uma ordem existente na Binance Futures via DELETE /fapi/v1/order.
+     * Cancela uma algo order existente na Binance Futures via DELETE /fapi/v1/algoOrder.
+     * @param algoId ID da algo order retornado pela Binance
+     */
+    public void cancelAlgoOrder(Long algoId) {
+        long timestamp = Instant.now().toEpochMilli();
+        String queryString = "algoId=" + algoId
+                + "&timestamp=" + timestamp;
+        String signature = signer.sign(queryString);
+
+        Runnable cancelCall = CircuitBreaker.decorateRunnable(
+                circuitBreaker,
+                RateLimiter.decorateRunnable(
+                        rateLimiter,
+                        () -> authenticatedApi.delete()
+                                .uri(uriBuilder -> uriBuilder
+                                        .path("/fapi/v1/algoOrder")
+                                        .queryParam("algoId", algoId)
+                                        .queryParam("timestamp", timestamp)
+                                        .queryParam("signature", signature)
+                                        .build())
+                                .retrieve()
+                                .toBodilessEntity()
+                )
+        );
+
+        cancelCall.run();
+        log.info("❌ [CANCEL ALGO ORDER] algoId={}", algoId);
+    }
+
+    /**
+     * Cancela uma ordem regular existente na Binance Futures via DELETE /fapi/v1/order.
+     * Mantido para ordens do tipo MARKET e outras ordens regulares.
      * @param symbol  Ex: "BTCUSDT"
      * @param orderId ID da ordem retornado pela Binance
      */
