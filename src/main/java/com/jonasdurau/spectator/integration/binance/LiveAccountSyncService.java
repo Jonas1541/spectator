@@ -45,19 +45,22 @@ public class LiveAccountSyncService {
     private final BinanceApiSigner signer;
     private final BinanceRiskSyncService binanceRiskSyncService;
     private final NotificationService notificationService;
+    private final BinanceOrderService binanceOrderService;
 
     public LiveAccountSyncService(PositionRepository positionRepository,
                                    TradeRepository tradeRepository,
                                    @Qualifier("binanceAuthenticatedApi") RestClient authenticatedApi,
                                    BinanceApiSigner signer,
                                    BinanceRiskSyncService binanceRiskSyncService,
-                                   NotificationService notificationService) {
+                                   NotificationService notificationService,
+                                   BinanceOrderService binanceOrderService) {
         this.positionRepository = positionRepository;
         this.tradeRepository = tradeRepository;
         this.authenticatedApi = authenticatedApi;
         this.signer = signer;
         this.binanceRiskSyncService = binanceRiskSyncService;
         this.notificationService = notificationService;
+        this.binanceOrderService = binanceOrderService;
     }
 
     @PostConstruct
@@ -91,6 +94,61 @@ public class LiveAccountSyncService {
 
     private void reconcilePosition(Position position) {
         String symbol = position.getSymbol();
+
+        // ==========================================
+        // 🧟 ZOMBIE CATCHER: Auto-Recuperação
+        // ==========================================
+        if (position.getBinanceSlOrderId() == null || position.getBinanceTpOrderId() == null) {
+            log.warn("🧟 ZOMBIE DETECTED on Startup! {} {} is missing SL/TP Order IDs in database.", position.getSide(),
+                    symbol);
+
+            // Cenário A: O banco tem os preços originais salvos, só faltou enviar pra
+            // Binance na hora (ex: net caiu)
+            if (position.getStopLoss() != null && position.getTakeProfit() != null) {
+                log.info("🔄 Self-Healing: Resending missing SL/TP to Binance for {} {}", position.getSide(), symbol);
+                try {
+                    if (position.getBinanceSlOrderId() == null) {
+                        binanceRiskSyncService.placeStopLoss(position, position.getStopLoss());
+                    }
+                    if (position.getBinanceTpOrderId() == null) {
+                        binanceRiskSyncService.placeTakeProfit(position, position.getTakeProfit());
+                    }
+                    positionRepository.save(position);
+                    log.info("✅ Self-Healing successful! {} {} is protected again.", position.getSide(), symbol);
+                    return; // Posição foi salva e não é mais zumbi! Sai do método.
+                } catch (Exception e) {
+                    log.error("🚨 Self-Healing failed to place SL/TP for {}. Proceeding to emergency close. Error: {}",
+                            symbol, e.getMessage());
+                    // Se falhar a comunicação de novo, segue para o Cenário B
+                }
+            }
+
+            // Cenário B: Irrecuperável (Não tem preço no banco ou o reenvio falhou). Fechar
+            // a mercado imediatamente!
+            log.warn("🧨 Executing EMERGENCY CLOSE for zombie {} {} to protect capital.", position.getSide(), symbol);
+            try {
+                TradeSide oppositeSide = (position.getSide() == TradeSide.LONG) ? TradeSide.SHORT : TradeSide.LONG;
+
+                // Envia a ordem para fechar na exchange
+                binanceOrderService.placeMarketOrder(symbol, oppositeSide, position.getQuantity());
+
+                // Fecha no banco local
+                position.setStatus(PositionStatus.CLOSED);
+                position.setBinanceSlOrderId(null);
+                position.setBinanceTpOrderId(null);
+                positionRepository.save(position);
+
+                notificationService.notifyCriticalError("SelfHealing", String
+                        .format("Zombie %s %s was force-closed at market on startup.", position.getSide(), symbol));
+                return;
+            } catch (Exception e) {
+                log.error("🚨 FATAL: Could not force-close zombie {} {}. MANUAL INTERVENTION REQUIRED! Error: {}",
+                        position.getSide(), symbol, e.getMessage());
+                notificationService.notifyCriticalError("FATAL",
+                        "Could not close zombie " + symbol + " on startup. Check Binance!");
+                return;
+            }
+        }
 
         // Busca ordens abertas na Binance para este símbolo
         Set<Long> activeOrderIds = fetchOpenOrderIds(symbol);
@@ -130,7 +188,8 @@ public class LiveAccountSyncService {
             positionRepository.save(position);
 
             notificationService.notifyCriticalError("Reconciliation",
-                    String.format("SL executed by Binance for %s %s while bot was offline. TP cancelled. Position synced.",
+                    String.format(
+                            "SL executed by Binance for %s %s while bot was offline. TP cancelled. Position synced.",
                             position.getSide(), symbol));
             return;
         }
@@ -148,7 +207,8 @@ public class LiveAccountSyncService {
             positionRepository.save(position);
 
             notificationService.notifyCriticalError("Reconciliation",
-                    String.format("TP executed by Binance for %s %s while bot was offline. SL cancelled. Position synced.",
+                    String.format(
+                            "TP executed by Binance for %s %s while bot was offline. SL cancelled. Position synced.",
                             position.getSide(), symbol));
             return;
         }

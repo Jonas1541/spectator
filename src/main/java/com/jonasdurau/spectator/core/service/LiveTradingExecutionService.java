@@ -58,10 +58,15 @@ public class LiveTradingExecutionService implements OrderExecutionService {
 
         log.info("[LIVE TRADING] Sending {} {} MARKET order for {} (Qty: {})...", strategyName, side, symbol, quantity);
 
+        // VARIÁVEIS DE CONTROLO PARA O FAILSAFE
+        boolean orderPlacedOnExchange = false;
+        Position openedPosition = null;
+        double roundedQuantity = 0.0;
+
         try {
-            // Obtém a precisão permitida para o símbolo e arredonda para baixo (evita erro 400)
+            // Obtém a precisão permitida para o símbolo e arredonda para baixo
             int precision = exchangeInfoService.getQuantityPrecision(symbol);
-            double roundedQuantity = BigDecimal.valueOf(quantity)
+            roundedQuantity = BigDecimal.valueOf(quantity)
                     .setScale(precision, RoundingMode.DOWN)
                     .doubleValue();
 
@@ -71,6 +76,9 @@ public class LiveTradingExecutionService implements OrderExecutionService {
 
             // 1. Envia a ordem real para a Binance
             BinanceOrderResponse response = binanceOrderService.placeMarketOrder(symbol, side, roundedQuantity);
+            
+            // 🔥 MARCO DE SEGURANÇA: Ordem foi executada na Binance com sucesso!
+            orderPlacedOnExchange = true; 
 
             // 2. Usa o preço médio de execução real, se a Binance retornar um valor válido > 0
             double executionPrice = currentPrice;
@@ -95,26 +103,54 @@ public class LiveTradingExecutionService implements OrderExecutionService {
 
             metricsService.recordLiveOrderSuccess();
 
-            // 3. Registra a posição internamente para tracking de SL/TP/trailing
-            Position position = positionManagerService.openPosition(
+            // 4. Registra a posição internamente para tracking de SL/TP/trailing
+            openedPosition = positionManagerService.openPosition(
                     strategyName, symbol, side, executionPrice, executedQuantity,
                     stopLoss, takeProfit, breakevenMultiplier, trailingMultiplier);
 
-            // 4. Coloca ordens de risco (SL/TP) na Binance para blindagem server-side
+            // 5. Coloca ordens de risco (SL/TP) na Binance para blindagem server-side
             if (stopLoss != null) {
-                binanceRiskSyncService.placeStopLoss(position, stopLoss);
+                binanceRiskSyncService.placeStopLoss(openedPosition, stopLoss);
             }
             if (takeProfit != null) {
-                binanceRiskSyncService.placeTakeProfit(position, takeProfit);
+                binanceRiskSyncService.placeTakeProfit(openedPosition, takeProfit);
             }
-            positionRepository.save(position);
+            positionRepository.save(openedPosition);
+            
         } catch (Exception e) {
             log.error("🚨 [LIVE TRADING] FAILED to execute {} {} order for {} (Qty: {}): {}",
                     strategyName, side, symbol, quantity, e.getMessage(), e);
+
+            // ==========================================
+            // 🛡️ PANIC FAILSAFE: PROTEÇÃO CONTRA ZUMBIS
+            // ==========================================
+            if (orderPlacedOnExchange) {
+                log.warn("⚠️ [FAILSAFE] SL/TP failed for {}. Position is open on Binance without protection. Initiating emergency close!", symbol);
+                try {
+                    // Calcula a direção oposta para fechar a posição
+                    TradeSide oppositeSide = (side == TradeSide.LONG) ? TradeSide.SHORT : TradeSide.LONG;
+                    
+                    // Envia ordem a mercado para fechar
+                    binanceOrderService.placeMarketOrder(symbol, oppositeSide, roundedQuantity);
+                    log.info("✅ [FAILSAFE] Emergency market close executed successfully for {}", symbol);
+
+                    // Se a posição chegou a ser salva na base de dados, fechamos localmente também
+                    if (openedPosition != null) {
+                        positionManagerService.closePosition(openedPosition, currentPrice, "PANIC_FAILSAFE");
+                    }
+                } catch (Exception failsafeEx) {
+                    // Pior cenário possível: a net caiu completamente e nem o failsafe passou.
+                    log.error("🚨 [FATAL] Failsafe ALSO failed for {}! Manual intervention required immediately on Binance. Error: {}", symbol, failsafeEx.getMessage(), failsafeEx);
+                    notificationService.notifyCriticalError("FATAL FAILSAFE ERROR", 
+                            String.format("Failed to emergency close zombie %s position for %s. CHECK BINANCE ASAP!", side, symbol));
+                }
+            }
+
             metricsService.recordLiveOrderFailed();
             notificationService.notifyCriticalError("LiveTrading",
                     String.format("Failed %s %s order for %s (Qty: %.6f): %s", strategyName, side, symbol, quantity, e.getMessage()));
-            // Propaga o erro para que camadas superiores saibam que a ordem falhou
+            
+            // Propaga o erro
             throw new RuntimeException("Failed to execute live order on Binance: " + e.getMessage(), e);
         }
     }
