@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Serviço responsável por buscar e gerenciar as regras e metadados da Binance.
  * Mantém em cache a precisão exigida para as quantidades das ordens (quantityPrecision),
+ * e para os preços (pricePrecision),
  * evitando erros como "Precision is over the maximum defined for this asset".
  */
 @Service
@@ -21,7 +22,8 @@ public class BinanceExchangeInfoService {
     private static final Logger log = LoggerFactory.getLogger(BinanceExchangeInfoService.class);
 
     private final RestClient restClient;
-    private final ConcurrentHashMap<String, Integer> symbolPrecisions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> quantityPrecisions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> pricePrecisions = new ConcurrentHashMap<>();
 
     public BinanceExchangeInfoService(@Qualifier("binanceApi") RestClient restClient) {
         this.restClient = restClient;
@@ -39,10 +41,11 @@ public class BinanceExchangeInfoService {
             if (response != null && response.symbols() != null) {
                 for (BinanceSymbolInfo symbolInfo : response.symbols()) {
                     if (symbolInfo.symbol() != null) {
-                        symbolPrecisions.put(symbolInfo.symbol(), symbolInfo.quantityPrecision());
+                        quantityPrecisions.put(symbolInfo.symbol(), symbolInfo.quantityPrecision());
+                        pricePrecisions.put(symbolInfo.symbol(), symbolInfo.pricePrecision());
                     }
                 }
-                log.info("Regras de precisão carregadas para {} símbolos.", symbolPrecisions.size());
+                log.info("Regras de precisão carregadas para {} símbolos.", quantityPrecisions.size());
             } else {
                 log.warn("O campo 'symbols' não foi encontrado ou está vazio na resposta do exchangeInfo da Binance.");
             }
@@ -59,9 +62,20 @@ public class BinanceExchangeInfoService {
      * @return o número de casas decimais suportados
      */
     public int getQuantityPrecision(String symbol) {
-        return symbolPrecisions.getOrDefault(symbol, 0);
+        return quantityPrecisions.getOrDefault(symbol, 0);
+    }
+
+    /**
+     * Retorna a precisão permitida para o preço em um determinado símbolo.
+     * Caso não encontre, o fallback padrão será 2.
+     *
+     * @param symbol o nome do par (ex: SOLUSDT)
+     * @return o número de casas decimais suportados
+     */
+    public int getPricePrecision(String symbol) {
+        return pricePrecisions.getOrDefault(symbol, 2);
     }
 }
 
 record BinanceExchangeInfoResponse(List<BinanceSymbolInfo> symbols) {}
-record BinanceSymbolInfo(String symbol, int quantityPrecision) {}
+record BinanceSymbolInfo(String symbol, int quantityPrecision, int pricePrecision) {}

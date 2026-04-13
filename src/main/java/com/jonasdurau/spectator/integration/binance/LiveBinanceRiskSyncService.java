@@ -3,6 +3,8 @@ package com.jonasdurau.spectator.integration.binance;
 import com.jonasdurau.spectator.core.domain.Position;
 import com.jonasdurau.spectator.core.service.BinanceRiskSyncService;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceAlgoOrderResponse;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,17 +23,24 @@ public class LiveBinanceRiskSyncService implements BinanceRiskSyncService {
     private static final Logger log = LoggerFactory.getLogger(LiveBinanceRiskSyncService.class);
 
     private final BinanceOrderService binanceOrderService;
+    private final BinanceExchangeInfoService exchangeInfoService;
 
-    public LiveBinanceRiskSyncService(BinanceOrderService binanceOrderService) {
+    public LiveBinanceRiskSyncService(BinanceOrderService binanceOrderService, BinanceExchangeInfoService exchangeInfoService) {
         this.binanceOrderService = binanceOrderService;
+        this.exchangeInfoService = exchangeInfoService;
         log.warn("🔥 Live Binance Risk Sync active! SL/TP orders will be sent to Binance via Algo Order API.");
     }
 
     @Override
     public Long placeStopLoss(Position position, double stopPrice) {
         try {
+            int precision = exchangeInfoService.getPricePrecision(position.getSymbol());
+            double roundedPrice = BigDecimal.valueOf(stopPrice)
+                    .setScale(precision, RoundingMode.HALF_UP)
+                    .doubleValue();
+
             BinanceAlgoOrderResponse response = binanceOrderService.placeAlgoStopMarketOrder(
-                    position.getSymbol(), position.getSide(), stopPrice);
+                    position.getSymbol(), position.getSide(), roundedPrice);
             Long algoId = response.algoId();
             position.setBinanceSlOrderId(algoId);
             return algoId;
@@ -45,8 +54,13 @@ public class LiveBinanceRiskSyncService implements BinanceRiskSyncService {
     @Override
     public Long placeTakeProfit(Position position, double tpPrice) {
         try {
+            int precision = exchangeInfoService.getPricePrecision(position.getSymbol());
+            double roundedPrice = BigDecimal.valueOf(tpPrice)
+                    .setScale(precision, RoundingMode.HALF_UP)
+                    .doubleValue();
+
             BinanceAlgoOrderResponse response = binanceOrderService.placeAlgoTakeProfitMarketOrder(
-                    position.getSymbol(), position.getSide(), tpPrice);
+                    position.getSymbol(), position.getSide(), roundedPrice);
             Long algoId = response.algoId();
             position.setBinanceTpOrderId(algoId);
             return algoId;
