@@ -74,6 +74,18 @@ public class LiveTradingExecutionService implements OrderExecutionService {
                 log.info("[LIVE TRADING] Truncating qty from {} to {} for {}", quantity, roundedQuantity, symbol);
             }
 
+            // 0. Binance Min Notional Validation
+            double minNotional = exchangeInfoService.getMinNotional(symbol);
+            double orderNotional = roundedQuantity * currentPrice;
+            if (orderNotional < minNotional) {
+                log.warn("⚠️ [LIVE TRADING] Order for {} aborted. Notional ({} * {} = {}) is below Binance's minimum required ({}).", 
+                        symbol, roundedQuantity, currentPrice, orderNotional, minNotional);
+                metricsService.recordLiveOrderFailed();
+                notificationService.notifyCriticalError("RiskValidation", 
+                        String.format("Entry for %s aborted: Allocated position size notional (%.2f USDT) is below Exchange Minimum (%.2f USDT). Risk parameters dictate a smaller position size than technically allowed.", symbol, orderNotional, minNotional));
+                return; // Gracefully stop execution without triggering Panics
+            }
+
             // 1. Envia a ordem real para a Binance
             BinanceOrderResponse response = binanceOrderService.placeMarketOrder(symbol, side, roundedQuantity);
             

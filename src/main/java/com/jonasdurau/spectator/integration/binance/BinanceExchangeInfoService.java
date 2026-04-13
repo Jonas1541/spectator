@@ -13,8 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Serviço responsável por buscar e gerenciar as regras e metadados da Binance.
  * Mantém em cache a precisão exigida para as quantidades das ordens (quantityPrecision),
- * e para os preços (pricePrecision),
- * evitando erros como "Precision is over the maximum defined for this asset".
+ * e para os preços (pricePrecision), e os valores mínimos de nocional,
+ * evitando erros de validação como "Precision is over the maximum defined" ou "Order's notional must be no smaller than X".
  */
 @Service
 public class BinanceExchangeInfoService {
@@ -24,6 +24,7 @@ public class BinanceExchangeInfoService {
     private final RestClient restClient;
     private final ConcurrentHashMap<String, Integer> quantityPrecisions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Integer> pricePrecisions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Double> minNotionals = new ConcurrentHashMap<>();
 
     public BinanceExchangeInfoService(@Qualifier("binanceApi") RestClient restClient) {
         this.restClient = restClient;
@@ -31,7 +32,7 @@ public class BinanceExchangeInfoService {
 
     @PostConstruct
     public void init() {
-        log.info("Buscando exchange info da Binance para carregar regras de precisão...");
+        log.info("Buscando exchange info da Binance para carregar regras de precisão e notional...");
         try {
             BinanceExchangeInfoResponse response = restClient.get()
                     .uri("https://fapi.binance.com/fapi/v1/exchangeInfo")
@@ -43,9 +44,17 @@ public class BinanceExchangeInfoService {
                     if (symbolInfo.symbol() != null) {
                         quantityPrecisions.put(symbolInfo.symbol(), symbolInfo.quantityPrecision());
                         pricePrecisions.put(symbolInfo.symbol(), symbolInfo.pricePrecision());
+                        
+                        if (symbolInfo.filters() != null) {
+                            for (BinanceSymbolFilter filter : symbolInfo.filters()) {
+                                if ("MIN_NOTIONAL".equals(filter.filterType()) && filter.notional() != null) {
+                                    minNotionals.put(symbolInfo.symbol(), Double.parseDouble(filter.notional()));
+                                }
+                            }
+                        }
                     }
                 }
-                log.info("Regras de precisão carregadas para {} símbolos.", quantityPrecisions.size());
+                log.info("Regras carregadas para {} símbolos.", quantityPrecisions.size());
             } else {
                 log.warn("O campo 'symbols' não foi encontrado ou está vazio na resposta do exchangeInfo da Binance.");
             }
@@ -75,7 +84,18 @@ public class BinanceExchangeInfoService {
     public int getPricePrecision(String symbol) {
         return pricePrecisions.getOrDefault(symbol, 2);
     }
+
+    /**
+     * Retorna o valor mínimo nocional (quantidade * preço) exigido para a ordem.
+     *
+     * @param symbol o nome do par (ex: BTCUSDT)
+     * @return o mínimo estipulado pela corretora (fallback padrão: 5.0)
+     */
+    public double getMinNotional(String symbol) {
+        return minNotionals.getOrDefault(symbol, 5.0);
+    }
 }
 
+record BinanceSymbolFilter(String filterType, String notional) {}
 record BinanceExchangeInfoResponse(List<BinanceSymbolInfo> symbols) {}
-record BinanceSymbolInfo(String symbol, int quantityPrecision, int pricePrecision) {}
+record BinanceSymbolInfo(String symbol, int quantityPrecision, int pricePrecision, List<BinanceSymbolFilter> filters) {}
