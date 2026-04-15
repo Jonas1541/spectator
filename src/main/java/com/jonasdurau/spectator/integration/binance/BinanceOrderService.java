@@ -225,8 +225,17 @@ public class BinanceOrderService {
                 )
         );
 
-        cancelCall.run();
-        log.info("❌ [CANCEL ALGO ORDER] algoId={}", algoId);
+        try {
+            cancelCall.run();
+            log.info("❌ [CANCEL ALGO ORDER] algoId={}", algoId);
+        } catch (Exception e) {
+            String errorMsg = e.getMessage() != null ? e.getMessage() : "";
+            if (errorMsg.contains("-2011") || errorMsg.contains("Unknown order")) {
+                log.debug("ℹ️ [CANCEL ALGO ORDER] algoId={} silently ignored (-2011: Unknown order).", algoId);
+            } else {
+                throw e; // Rethrow other errors to be logged by the caller
+            }
+        }
     }
 
     /**
