@@ -34,6 +34,20 @@ public class LiveBinanceRiskSyncService implements BinanceRiskSyncService {
     @Override
     public Long placeStopLoss(Position position, double stopPrice) {
         try {
+            // Cancela o SL anterior para evitar -4130 (Binance não permite sobrescrever Algo Orders)
+            Long existingAlgoId = position.getBinanceSlOrderId();
+            if (existingAlgoId != null) {
+                log.info("🔄 Cancelling previous SL algo order {} before placing new one for {}",
+                        existingAlgoId, position.getSymbol());
+                try {
+                    binanceOrderService.cancelAlgoOrder(existingAlgoId);
+                } catch (Exception cancelEx) {
+                    log.warn("⚠️ Failed to cancel previous SL algo order {}: {}",
+                            existingAlgoId, cancelEx.getMessage());
+                }
+                position.setBinanceSlOrderId(null);
+            }
+
             int precision = exchangeInfoService.getPricePrecision(position.getSymbol());
             double roundedPrice = BigDecimal.valueOf(stopPrice)
                     .setScale(precision, RoundingMode.HALF_UP)

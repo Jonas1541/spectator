@@ -20,6 +20,12 @@ public class PositionManagerService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionManagerService.class);
 
+    /**
+     * Threshold mínimo (0.2%) para atualizar o Trailing Stop na exchange.
+     * Evita spam de requisições a cada micro-variação de preço.
+     */
+    private static final double TRAILING_STEP_THRESHOLD = 0.002;
+
     private final PositionRepository positionRepository;
     private final TradeRepository tradeRepository;
     private final TradingMetricsService metricsService;
@@ -75,6 +81,9 @@ public class PositionManagerService {
         // Cancela ordens residuais SL/TP na exchange antes de fechar localmente
         binanceRiskSyncService.cancelAllOrders(position);
 
+        // Calcula o PnL realizado ANTES de mudar o status para CLOSED,
+        // pois calculateFloatingPnl() retorna 0 se a posição já estiver fechada.
+        position.setRealizedPnl(position.calculateFloatingPnl(closingPrice));
         position.closePosition(closingPrice);
 
         positionRepository.save(position);
@@ -136,30 +145,38 @@ public class PositionManagerService {
                     }
                 }
 
-                // --- 2. TRAILING LOGIC ---
+                // --- 2. TRAILING LOGIC (com Threshold anti-spam) ---
                 if (trailingMult != null) {
                     double trailingDistance = riskDistance * trailingMult;
 
                     if (position.getSide() == TradeSide.LONG) {
                         double potentialStop = currentPrice - trailingDistance;
                         if (potentialStop > currentStop) {
-                            position.setStopLoss(potentialStop);
-                            currentStop = potentialStop; 
-                            stopMoved = true;
-                            log.info("Trailing Stop moved HIGHER for LONG on {}! New Stop: {}", symbol, potentialStop);
+                            double stepPercent = Math.abs(potentialStop - currentStop) / Math.abs(currentStop);
+                            if (stepPercent >= TRAILING_STEP_THRESHOLD) {
+                                position.setStopLoss(potentialStop);
+                                currentStop = potentialStop;
+                                stopMoved = true;
+                                log.info("✅ Trailing Step reached ({} >= {}%) for LONG on {}! New Stop: {}",
+                                        String.format("%.4f", stepPercent * 100), TRAILING_STEP_THRESHOLD * 100, symbol, potentialStop);
+                            }
                         }
                     } else { // SHORT
                         double potentialStop = currentPrice + trailingDistance;
                         if (potentialStop < currentStop) {
-                            position.setStopLoss(potentialStop);
-                            currentStop = potentialStop;
-                            stopMoved = true;
-                            log.info("Trailing Stop moved LOWER for SHORT on {}! New Stop: {}", symbol, potentialStop);
+                            double stepPercent = Math.abs(currentStop - potentialStop) / Math.abs(currentStop);
+                            if (stepPercent >= TRAILING_STEP_THRESHOLD) {
+                                position.setStopLoss(potentialStop);
+                                currentStop = potentialStop;
+                                stopMoved = true;
+                                log.info("✅ Trailing Step reached ({} >= {}%) for SHORT on {}! New Stop: {}",
+                                        String.format("%.4f", stepPercent * 100), TRAILING_STEP_THRESHOLD * 100, symbol, potentialStop);
+                            }
                         }
                     }
                 }
             }
-            
+
             if (stopMoved) {
                 // Cancel & Replace: cancela SL antigo e coloca novo na exchange
                 binanceRiskSyncService.cancelStopLoss(position);
