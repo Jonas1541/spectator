@@ -102,24 +102,31 @@ public class LiveAccountSyncService {
             log.warn("🧟 ZOMBIE DETECTED on Startup! {} {} is missing SL/TP Order IDs in database.", position.getSide(),
                     symbol);
 
-            // Cenário A: O banco tem os preços originais salvos, só faltou enviar pra
-            // Binance na hora (ex: net caiu)
             if (position.getStopLoss() != null && position.getTakeProfit() != null) {
                 log.info("🔄 Self-Healing: Resending missing SL/TP to Binance for {} {}", position.getSide(), symbol);
                 try {
                     if (position.getBinanceSlOrderId() == null) {
-                        binanceRiskSyncService.placeStopLoss(position, position.getStopLoss());
+                        Long slId = binanceRiskSyncService.placeStopLoss(position, position.getStopLoss());
+                        if (slId == null) {
+                            throw new RuntimeException("API returned null for Stop Loss");
+                        }
                     }
                     if (position.getBinanceTpOrderId() == null) {
-                        binanceRiskSyncService.placeTakeProfit(position, position.getTakeProfit());
+                        Long tpId = binanceRiskSyncService.placeTakeProfit(position, position.getTakeProfit());
+                        if (tpId == null) {
+                            throw new RuntimeException("API returned null for Take Profit");
+                        }
                     }
                     positionRepository.save(position);
                     log.info("✅ Self-Healing successful! {} {} is protected again.", position.getSide(), symbol);
                     return; // Posição foi salva e não é mais zumbi! Sai do método.
                 } catch (Exception e) {
-                    log.error("🚨 Self-Healing failed to place SL/TP for {}. Proceeding to emergency close. Error: {}",
+                    log.error("🚨 Self-Healing failed to place SL/TP for {}. Position is NAKED! Error: {}",
                             symbol, e.getMessage());
-                    // Se falhar a comunicação de novo, segue para o Cenário B
+                    notificationService.notifyCriticalError("SelfHealing",
+                            String.format("CRITICAL ERROR: Self-Healing failed to place SL/TP for %s %s. Position is NAKED and requires manual intervention! Error: %s",
+                                    position.getSide(), symbol, e.getMessage()));
+                    return; // Aborta o processo sem prosseguir para o Cenário B
                 }
             }
 

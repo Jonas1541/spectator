@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.function.Supplier;
 
@@ -55,11 +56,13 @@ public class BinanceOrderService {
         // Binance Futures usa BUY/SELL (não LONG/SHORT)
         String binanceSide = side == TradeSide.LONG ? "BUY" : "SELL";
 
+        String plainQuantity = BigDecimal.valueOf(quantity).stripTrailingZeros().toPlainString();
+
         long timestamp = Instant.now().toEpochMilli();
         String queryString = "symbol=" + symbol
                 + "&side=" + binanceSide
                 + "&type=MARKET"
-                + "&quantity=" + quantity
+                + "&quantity=" + plainQuantity
                 + "&timestamp=" + timestamp;
         String signature = signer.sign(queryString);
 
@@ -67,7 +70,7 @@ public class BinanceOrderService {
                 circuitBreaker,
                 RateLimiter.decorateSupplier(
                         rateLimiter,
-                        () -> executeOrderRequest(symbol, binanceSide, quantity, timestamp, signature)
+                        () -> executeOrderRequest(symbol, binanceSide, plainQuantity, timestamp, signature)
                 )
         );
 
@@ -80,7 +83,7 @@ public class BinanceOrderService {
         return response;
     }
 
-    private BinanceOrderResponse executeOrderRequest(String symbol, String side, double quantity,
+    private BinanceOrderResponse executeOrderRequest(String symbol, String side, String quantity,
                                                       long timestamp, String signature) {
         return authenticatedApi.post()
                 .uri(uriBuilder -> uriBuilder
@@ -107,13 +110,15 @@ public class BinanceOrderService {
      */
     public BinanceAlgoOrderResponse placeAlgoStopMarketOrder(String symbol, TradeSide positionSide, double triggerPrice) {
         String binanceSide = positionSide == TradeSide.LONG ? "SELL" : "BUY";
+        String plainTriggerPrice = BigDecimal.valueOf(triggerPrice).stripTrailingZeros().toPlainString();
+        
         long timestamp = Instant.now().toEpochMilli();
         String queryString = "symbol=" + symbol
                 + "&side=" + binanceSide
                 + "&algoType=CONDITIONAL"
                 + "&type=STOP_MARKET"
                 + "&closePosition=true"
-                + "&triggerPrice=" + triggerPrice
+                + "&triggerPrice=" + plainTriggerPrice
                 + "&timestamp=" + timestamp;
         String signature = signer.sign(queryString);
 
@@ -129,7 +134,7 @@ public class BinanceOrderService {
                                         .queryParam("algoType", "CONDITIONAL")
                                         .queryParam("type", "STOP_MARKET")
                                         .queryParam("closePosition", "true")
-                                        .queryParam("triggerPrice", triggerPrice)
+                                        .queryParam("triggerPrice", plainTriggerPrice)
                                         .queryParam("timestamp", timestamp)
                                         .queryParam("signature", signature)
                                         .build())
@@ -140,7 +145,7 @@ public class BinanceOrderService {
 
         BinanceAlgoOrderResponse response = orderCall.get();
         log.info("🛡️ [ALGO STOP_MARKET] {} {} @ triggerPrice={} | algoId={} | status={}",
-                binanceSide, symbol, triggerPrice, response.algoId(), response.algoStatus());
+                binanceSide, symbol, plainTriggerPrice, response.algoId(), response.algoStatus());
         return response;
     }
 
@@ -155,13 +160,15 @@ public class BinanceOrderService {
      */
     public BinanceAlgoOrderResponse placeAlgoTakeProfitMarketOrder(String symbol, TradeSide positionSide, double triggerPrice) {
         String binanceSide = positionSide == TradeSide.LONG ? "SELL" : "BUY";
+        String plainTriggerPrice = BigDecimal.valueOf(triggerPrice).stripTrailingZeros().toPlainString();
+        
         long timestamp = Instant.now().toEpochMilli();
         String queryString = "symbol=" + symbol
                 + "&side=" + binanceSide
                 + "&algoType=CONDITIONAL"
                 + "&type=TAKE_PROFIT_MARKET"
                 + "&closePosition=true"
-                + "&triggerPrice=" + triggerPrice
+                + "&triggerPrice=" + plainTriggerPrice
                 + "&timestamp=" + timestamp;
         String signature = signer.sign(queryString);
 
@@ -177,7 +184,7 @@ public class BinanceOrderService {
                                         .queryParam("algoType", "CONDITIONAL")
                                         .queryParam("type", "TAKE_PROFIT_MARKET")
                                         .queryParam("closePosition", "true")
-                                        .queryParam("triggerPrice", triggerPrice)
+                                        .queryParam("triggerPrice", plainTriggerPrice)
                                         .queryParam("timestamp", timestamp)
                                         .queryParam("signature", signature)
                                         .build())
@@ -188,7 +195,7 @@ public class BinanceOrderService {
 
         BinanceAlgoOrderResponse response = orderCall.get();
         log.info("🎯 [ALGO TAKE_PROFIT_MARKET] {} {} @ triggerPrice={} | algoId={} | status={}",
-                binanceSide, symbol, triggerPrice, response.algoId(), response.algoStatus());
+                binanceSide, symbol, plainTriggerPrice, response.algoId(), response.algoStatus());
         return response;
     }
 
