@@ -3,8 +3,6 @@ package com.jonasdurau.spectator.integration.binance;
 import com.jonasdurau.spectator.core.domain.Position;
 import com.jonasdurau.spectator.core.service.BinanceRiskSyncService;
 import com.jonasdurau.spectator.integration.binance.dto.BinanceAlgoOrderResponse;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -48,13 +46,11 @@ public class LiveBinanceRiskSyncService implements BinanceRiskSyncService {
                 position.setBinanceSlOrderId(null);
             }
 
-            int precision = exchangeInfoService.getPricePrecision(position.getSymbol());
-            double roundedPrice = BigDecimal.valueOf(stopPrice)
-                    .setScale(precision, RoundingMode.HALF_UP)
-                    .doubleValue();
+            String sanitizedPrice = exchangeInfoService.sanitizePrice(position.getSymbol(), stopPrice);
+            double safePrice = Double.parseDouble(sanitizedPrice);
 
             BinanceAlgoOrderResponse response = binanceOrderService.placeAlgoStopMarketOrder(
-                    position.getSymbol(), position.getSide(), roundedPrice);
+                    position.getSymbol(), position.getSide(), safePrice);
             Long algoId = response.algoId();
             position.setBinanceSlOrderId(algoId);
             return algoId;
@@ -68,13 +64,11 @@ public class LiveBinanceRiskSyncService implements BinanceRiskSyncService {
     @Override
     public Long placeTakeProfit(Position position, double tpPrice) {
         try {
-            int precision = exchangeInfoService.getPricePrecision(position.getSymbol());
-            double roundedPrice = BigDecimal.valueOf(tpPrice)
-                    .setScale(precision, RoundingMode.HALF_UP)
-                    .doubleValue();
+            String sanitizedPrice = exchangeInfoService.sanitizePrice(position.getSymbol(), tpPrice);
+            double safePrice = Double.parseDouble(sanitizedPrice);
 
             BinanceAlgoOrderResponse response = binanceOrderService.placeAlgoTakeProfitMarketOrder(
-                    position.getSymbol(), position.getSide(), roundedPrice);
+                    position.getSymbol(), position.getSide(), safePrice);
             Long algoId = response.algoId();
             position.setBinanceTpOrderId(algoId);
             return algoId;

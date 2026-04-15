@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -93,6 +95,33 @@ public class BinanceExchangeInfoService {
      */
     public double getMinNotional(String symbol) {
         return minNotionals.getOrDefault(symbol, 5.0);
+    }
+
+    /**
+     * Sanitiza um preço bruto para o formato aceito pela Binance.
+     * 1. Arredonda para a precisão decimal exigida pelo símbolo.
+     * 2. Aplica Regra de Sobrevivência (Min Price): se o preço arredondado for <= 0,
+     *    força para o menor valor representável pela precisão (ex: precisão 3 → 0.001).
+     * 3. Retorna como String sem notação científica (toPlainString).
+     *
+     * @param symbol   o par (ex: NEARUSDT)
+     * @param rawPrice o preço bruto calculado
+     * @return o preço sanitizado pronto para a API, em formato plain string
+     */
+    public String sanitizePrice(String symbol, double rawPrice) {
+        int precision = getPricePrecision(symbol);
+        BigDecimal rounded = BigDecimal.valueOf(rawPrice)
+                .setScale(precision, RoundingMode.HALF_UP);
+
+        // Regra de Sobrevivência: preço <= 0 é inválido na Binance
+        if (rounded.compareTo(BigDecimal.ZERO) <= 0) {
+            BigDecimal minPrice = BigDecimal.ONE.movePointLeft(precision);
+            log.warn("⚠️ Price {} for {} rounded to {} (<=0). Forcing to min price: {}",
+                    rawPrice, symbol, rounded.toPlainString(), minPrice.toPlainString());
+            rounded = minPrice;
+        }
+
+        return rounded.stripTrailingZeros().toPlainString();
     }
 }
 
