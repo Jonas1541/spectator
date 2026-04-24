@@ -11,6 +11,7 @@ scrape_configs:
       # Em dev, a aplicação roda fora do Docker (localhost:8080).
       # O 'host.docker.internal' resolve para o host da máquina.
       # No compose, usamos extra_hosts para garantir que funciona em Linux.
-      - targets: ['host.docker.internal:8080']
+      # Adicionamos também 'app:8080' para quando a aplicação roda dentro do Docker Compose.
+      - targets: ['host.docker.internal:8080', 'app:8080']
         labels:
           application: 'spectator'
