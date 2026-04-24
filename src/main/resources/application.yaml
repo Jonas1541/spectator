@@ -43,13 +43,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: "*"
   endpoint:
     health:
       show-details: always
-  prometheus:
-    metrics:
-      export:
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
         enabled: true
 
 # Configurações do Vaadin
